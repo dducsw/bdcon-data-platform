@@ -1,0 +1,79 @@
+# ====================================================================
+# PodDisruptionBudgets — Spot VM Safety
+# Ensures minimum availability during GKE node preemptions.
+# Optimized for Operator-based architecture.
+# ====================================================================
+
+# Kafka brokers: require at least 1 broker running at all times
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-broker-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/name: data-platform-kafka-broker-pool
+---
+# Kafka controller: keep controller quorum stable
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-controller-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/name: data-platform-kafka-controller-pool
+---
+# Trino Coordinator: must stay up
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trino-coordinator-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+      app.kubernetes.io/component: coordinator
+---
+# Trino Worker: ensure at least 1 worker for query processing
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trino-worker-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trino
+      app.kubernetes.io/component: worker
+---
+# Redis: keep cache instance alive
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: redis
+---
+# MinIO: require 2/3 replicas for read quorum in distributed mode
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minio-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: minio

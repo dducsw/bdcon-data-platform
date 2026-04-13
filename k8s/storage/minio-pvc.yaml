@@ -1,0 +1,15 @@
+# ====================================================================
+# MinIO PVC — node-1 (infra)
+# ====================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: balanced-rwo
+  resources:
+    requests:
+      storage: 50Gi

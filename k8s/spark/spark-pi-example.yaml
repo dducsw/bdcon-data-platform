@@ -1,0 +1,53 @@
+# ====================================================================
+# Apache Spark Kubernetes Operator — SparkPi Example
+# API: https://apache.github.io/spark-kubernetes-operator/
+# ====================================================================
+apiVersion: spark.apache.org/v1
+kind: SparkApplication
+metadata:
+  name: spark-pi
+  namespace: data-platform
+spec:
+  mainClass: "org.apache.spark.examples.SparkPi"
+  jars: "local:///opt/spark/examples/jars/spark-examples_2.12-3.5.5.jar"
+  sparkConf:
+    # Cluster Mode (Default for this Operator)
+    spark.kubernetes.authenticate.driver.serviceAccountName: "spark-driver"
+    spark.kubernetes.container.image: "REGISTRY/spark:3.5.5" # REPLACE WITH YOUR ARTIFACT REGISTRY
+    spark.kubernetes.container.imagePullPolicy: "Always"
+    
+    # Resource Allocation
+    spark.driver.cores: "1"
+    spark.driver.memory: "2g"
+    spark.executor.cores: "1"
+    spark.executor.instances: "2"
+    spark.executor.memory: "4g"
+    
+    # Scheduling & Spot VM Integration
+    spark.kubernetes.node.selector.role: "compute"
+    spark.kubernetes.driver.terminationGracePeriodSeconds: "15"
+    spark.kubernetes.executor.terminationGracePeriodSeconds: "15"
+    
+    # Labels for GKE Spot
+    spark.kubernetes.driver.label.version: "3.5.5"
+    spark.kubernetes.executor.label.version: "3.5.5"
+  
+  driver:
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+  
+  executor:
+    tolerations:
+      - key: "cloud.google.com/gke-spot"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+    
+  applicationTolerations:
+    resourceRetainPolicy: OnFailure
+    
+  runtimeVersions:
+    sparkVersion: "3.5.5"

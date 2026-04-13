@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gravitino-configmap
+  namespace: data-platform
+data:
+  # ============================================================
+  # Gravitino main config — Iceberg REST Catalog
+  # Credentials are injected at runtime via init container that
+  # reads from env vars (sourced from K8s Secrets).
+  # ============================================================
+  gravitino.conf.template: |
+    gravitino.auxService.names=iceberg-rest
+    gravitino.iceberg-rest.classpath=iceberg-rest-server/libs, iceberg-rest-server/conf
+
+    gravitino.iceberg-rest.host = 0.0.0.0
+    gravitino.iceberg-rest.httpPort = 9001
+
+    gravitino.iceberg-rest.catalog-backend=jdbc
+    gravitino.iceberg-rest.uri=jdbc:postgresql://postgres:5432/catalog_metastore_db
+    gravitino.iceberg-rest.warehouse=s3a://iceberg/lakehouse
+    gravitino.iceberg-rest.catalog-backend-name=jdbc
+    gravitino.iceberg-rest.jdbc-user=__POSTGRES_USER__
+    gravitino.iceberg-rest.jdbc-password=__POSTGRES_PASSWORD__
+    gravitino.iceberg-rest.jdbc-initialize=true
+    gravitino.iceberg-rest.jdbc-driver=org.postgresql.Driver
+
+    gravitino.iceberg-rest.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+    gravitino.iceberg-rest.s3-endpoint=http://minio:9000
+    gravitino.iceberg-rest.s3-access-key-id=__MINIO_ACCESS_KEY__
+    gravitino.iceberg-rest.s3-secret-access-key=__MINIO_SECRET_KEY__
+    gravitino.iceberg-rest.s3-path-style-access=true
+    gravitino.iceberg-rest.client.region=us-east-1
+
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+    </configuration>

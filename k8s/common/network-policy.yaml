@@ -1,0 +1,214 @@
+# ====================================================================
+# NetworkPolicies — Principle of Least Privilege
+# Default: deny all ingress/egress, then allowlist specific paths.
+# Requires CNI with NetworkPolicy support (e.g., Cilium — already set as ingressClassName).
+# ====================================================================
+
+# --- Default: deny all traffic within the namespace ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# --- Allow all pods to reach kube-dns (required for DNS resolution) ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# --- Allow all traffic within the namespace (Pod-to-Pod) ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# --- Allow Spark Workers ↔ Master ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-internal
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: spark-master
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              spark-role: worker
+      ports:
+        - port: 7077   # Spark RPC
+        - port: 8080   # Spark UI
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              spark-role: worker
+---
+# --- Allow Trino Workers → Coordinator ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-trino-internal
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: trino-coordinator
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: trino-worker
+      ports:
+        - port: 8080
+---
+# --- Allow Postgres access (from Gravitino, Hive-Metastore, Airflow) ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gravitino
+        - podSelector:
+            matchLabels:
+              app: hive-metastore
+        - podSelector:
+            matchLabels:
+              component: scheduler   # Airflow scheduler
+        - podSelector:
+            matchLabels:
+              component: webserver   # Airflow webserver
+      ports:
+        - port: 5432
+---
+# --- Allow MinIO access (from Spark, Trino, Hive-Metastore, Gravitino) ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-ingress
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  ingress:
+    - from:
+        - podSelector: {}   # Any pod in namespace can access MinIO (object storage is broadly needed)
+      ports:
+        - port: 9000   # MinIO S3 API
+        - port: 9001   # MinIO Console
+---
+# --- Allow Ingress Controller → Exposed Services Only ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-trino
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: trino-coordinator
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-superset
+  namespace: data-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: superset
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 8088
+---
+# --- Allow Prometheus → Scrape metrics from all pods ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: data-platform
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8080
+        - port: 7077
+        - port: 9000
+        - port: 9308   # Kafka exporter
+        - port: 9121   # Redis exporter
+---
+# --- Allow all pods outbound to external (internet) for image pulls etc. ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-egress
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+    - to:
+        - podSelector: {}

@@ -1,0 +1,16 @@
+# ====================================================================
+# PostgreSQL PVC — node-1 (infra)
+# GKE StorageClass: standard-rwo (GCE Persistent Disk, ReadWriteOnce)
+# ====================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: balanced-rwo
+  resources:
+    requests:
+      storage: 20Gi

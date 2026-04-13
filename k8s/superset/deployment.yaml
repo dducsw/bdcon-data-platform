@@ -1,0 +1,107 @@
+# ====================================================================
+# Apache Superset — node-3 (query, Spot)
+# Secret key now loaded from K8s Secret (managed by ESO + GCP Secret Manager)
+# ====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset
+  namespace: data-platform
+  labels:
+    app: superset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      enableServiceLinks: false
+      nodeSelector:
+        role: query
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      initContainers:
+        - name: fix-permissions
+          image: busybox:latest
+          command: ["sh", "-c", "chmod 777 /app/superset_home"]
+          volumeMounts:
+            - name: superset-data
+              mountPath: /app/superset_home
+      containers:
+        - name: superset
+          image: apache/superset:latest
+          ports:
+            - containerPort: 8088
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: superset-secret          # Created by ESO ExternalSecret
+                  key: SUPERSET_SECRET_KEY
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: PYTHONPATH
+              value: "/usr/local/lib/python3.10/site-packages"
+          command: ["/bin/bash", "/app/init/init.sh"]
+          volumeMounts:
+            - name: superset-data
+              mountPath: /app/superset_home
+            - name: superset-init-script
+              mountPath: /app/init
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8088
+            failureThreshold: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: superset-data
+          persistentVolumeClaim:
+            claimName: superset-pvc
+        - name: superset-init-script
+          configMap:
+            name: superset-init-config
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset
+  namespace: data-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: superset
+  ports:
+    - port: 8088
+      targetPort: 8088

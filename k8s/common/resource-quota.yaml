@@ -1,0 +1,42 @@
+# ====================================================================
+# ResourceQuota — Prevent any single component from starving the cluster
+# LimitRange  — Ensure containers without explicit limits still get bounded
+# ====================================================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: data-platform-quota
+  namespace: data-platform
+spec:
+  hard:
+    requests.cpu: "24"
+    requests.memory: "80Gi"
+    limits.cpu: "48"
+    limits.memory: "128Gi"
+    persistentvolumeclaims: "30"
+    pods: "100"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: data-platform-limits
+  namespace: data-platform
+spec:
+  limits:
+    - type: Container
+      # Default limits applied when a container does NOT specify them
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      # Default requests applied when a container does NOT specify them
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      # Hard floor/ceiling per container
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "8"
+        memory: "32Gi"

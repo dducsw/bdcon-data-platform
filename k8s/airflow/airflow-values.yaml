@@ -1,0 +1,111 @@
+# ====================================================================
+# Airflow Helm Chart Values (Official Chart)
+# Version: 3.1.6 custom image
+# Executor: KubernetesExecutor (Optimized for K8s)
+# ====================================================================
+
+images:
+  airflow:
+    repository: apache/airflow
+    # tag will fallback to default if not present or use specific
+    pullPolicy: Always
+
+# Switch to KubernetesExecutor to save resources and scale pods natively
+executor: "KubernetesExecutor"
+
+env:
+  - name: "AIRFLOW__CORE__AUTH_MANAGER"
+    value: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
+  - name: "AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION"
+    value: "true"
+  - name: "AIRFLOW__CORE__LOAD_EXAMPLES"
+    value: "true"
+
+# Disable default ingress as we use our own central NGINX/Cilium Ingress rules
+ingress:
+  web:
+    enabled: false
+
+# Database access to the central PostgreSQL in data-platform namespace
+data:
+  metadataConnection:
+    user: postgres
+    pass: ""  # Password should be provided via secret: airflow-db-secret
+    host: postgres.data-platform.svc
+    port: 5432
+    db: airflow
+    sslmode: disable
+  metadataSecretName: "postgres-secret" # Secret created by ESO
+
+webserver:
+  service:
+    type: ClusterIP
+    ports:
+      - name: airflow-ui
+        port: 8080
+  nodeSelector:
+    role: compute  # cluster has: compute, query (no 'infra' pool)
+  tolerations: []
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 1Gi
+
+# Configure persistence for DAGs and Logs
+dags:
+  persistence:
+    enabled: false
+    size: 5Gi
+    storageClassName: balanced-rwo
+    accessMode: ReadWriteOnce
+
+logs:
+  persistence:
+    enabled: false
+    size: 10Gi
+    storageClassName: balanced-rwo
+
+# Disable bundled Airflow DB/Redis — Use central Postgres instead
+scheduler:
+  nodeSelector:
+    role: compute
+  tolerations: []
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 1Gi
+
+dagProcessor:
+  nodeSelector:
+    role: compute
+  tolerations: []
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 1Gi
+
+triggerer:
+  nodeSelector:
+    role: compute
+  tolerations: []
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 1Gi
+
+postgresql:
+  enabled: false
+redis:
+  enabled: false

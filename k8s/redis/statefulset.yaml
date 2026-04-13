@@ -1,0 +1,73 @@
+# ====================================================================
+# Redis StatefulSet — Moved to infra node (On-demand)
+# Redis stores Airflow task state and Superset caching.
+# Running on Spot caused cache loss on preemption — now on On-demand.
+# ====================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: data-platform
+  labels:
+    app: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      nodeSelector:
+        role: compute   # All nodes are Spot; move to compute to free up infra node for Postgres
+      containers:
+        - name: redis
+          image: redis:7.2-bookworm
+          command:
+            - redis-server
+            - --appendonly yes    # Enable AOF persistence
+            - --save 60 1         # RDB snapshot every 60s if >=1 key changed
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: data-platform
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

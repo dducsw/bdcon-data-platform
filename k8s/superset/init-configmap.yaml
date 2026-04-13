@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: superset-init-config
+  namespace: data-platform
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Starting Superset initialization..."
+    
+    # 1. Database Upgrade
+    echo "Running database migrations..."
+    superset db upgrade
+    
+    # 2. Create Admin User (Idempotent check)
+    echo "Creating admin user..."
+    superset fab create-admin \
+        --username admin \
+        --firstname Superset \
+        --lastname Admin \
+        --email admin@localhost \
+        --password admin123 \
+        || echo "Admin user might already exist, skipping..."
+    
+    # 3. Initialize Superset
+    echo "Initializing roles and permissions..."
+    superset init
+    
+    echo "Initialization complete! Starting Superset server..."
+    /usr/bin/run-server.sh

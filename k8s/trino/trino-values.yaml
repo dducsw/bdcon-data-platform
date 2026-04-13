@@ -1,0 +1,99 @@
+# ====================================================================
+# Trino Official Helm Chart Values
+# Helm Chart: https://trinodb.github.io/charts/
+# ====================================================================
+
+image:
+  repository: trinodb/trino
+  tag: "479" # Aligned with Chart app version 479
+
+server:
+  workers: 2   # Default for production-like dev
+  node:
+    environment: production
+  log:
+    trino:
+      level: INFO
+
+# Inject secrets via Environment Variables from K8s Secret
+env:
+  - name: MINIO_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: spark-minio-secret
+        key: MINIO_ACCESS_KEY
+  - name: MINIO_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: spark-minio-secret
+        key: MINIO_SECRET_KEY
+
+coordinator:
+  jvm:
+    maxHeapSize: "3G"   # Reduced for infra node stability (32GB total node RAM)
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  resources:
+    requests:
+      memory: "3.5Gi"
+      cpu: "200m"
+    limits:
+      memory: "6Gi"
+      cpu: "2"
+  nodeSelector:
+    role: infra         # COORDINATOR MUST BE ON INFRA (ON-DEMAND) NODE
+  # No tolerations needed for infra node
+  terminationGracePeriodSeconds: 15
+
+worker:
+  jvm:
+    maxHeapSize: "8G"  # Higher heap for workers on Spot nodes
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  resources:
+    requests:
+      memory: "9Gi"
+      cpu: "1"
+    limits:
+      memory: "12Gi"
+      cpu: "4"
+  nodeSelector:
+    role: query         # WORKERS ON SPOT NODES
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  terminationGracePeriodSeconds: 15
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Define catalogs dynamically
+# NOTE: Trino 471 supports Env var interpolation if enabled. 
+# For now, using standard properties with a note for learning.
+additionalCatalogs:
+  catalog_iceberg: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://gravitino:9001/iceberg/
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio:9000
+    s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    s3.path-style-access=true
+    s3.region=us-east-1
+  hive: |
+    connector.name=hive
+    hive.metastore.uri=thrift://hive-metastore:9083
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio:9000
+    s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    s3.path-style-access=true
+    s3.region=us-east-1

@@ -1,0 +1,47 @@
+# ====================================================================
+# Redis PVC — node-2 (compute)
+# ====================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: balanced-rwo
+  resources:
+    requests:
+      storage: 5Gi
+---
+# ====================================================================
+# Grafana PVC — node-3 (query)
+# ====================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: balanced-rwo
+  resources:
+    requests:
+      storage: 5Gi
+---
+# ====================================================================
+# Superset PVC — node-3 (query)
+# ====================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: superset-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: balanced-rwo
+  resources:
+    requests:
+      storage: 5Gi

@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# This is the "dev" overlay — targets the "data-platform" namespace.
+# Use this when you want to override settings from the base "k8s/" folder
+# without modifying the production-ready manifests.
+# Usage: kubectl apply -k k8s/overlays/dev/
+
+namespace: data-platform
+
+resources:
+  - ../../   # Points to k8s/ base
+
+# For Helm-managed resources (Trino, Airflow, etc.),
+# you should use "helm upgrade --set" rather than Kustomize patches
+# as Kustomize doesn't know about those Deployments.
+
+patches:
+  # Reduce PostgreSQL resource requests for development
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+  
+  # Reduce MinIO replicas to 1 for lightweight dev testing (Optional)
+  # NOTE: 4 replicas is the approved "Production-like Dev" setting. 
+  # We keep it at 4 in base. If you want 1, uncomment this.
+  #- target:
+  #    kind: StatefulSet
+  #    name: minio
+  #  patch: |
+  #    - op: replace
+  #      path: /spec/replicas
+  #      value: 1
+
+  # Reducing Gravitino resources
+  - target:
+      kind: Deployment
+      name: gravitino
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"

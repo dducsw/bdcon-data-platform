@@ -1,0 +1,90 @@
+# ====================================================================
+# spark/configmap.yaml — Credentials removed from config text.
+# Spark containers inject MINIO_ACCESS_KEY / MINIO_SECRET_KEY via
+# envFrom (secretRef: spark-minio-secret), and Spark's built-in
+# ${env:VAR_NAME} substitution resolves them at runtime.
+# core-site.xml uses EnvironmentVariableCredentialsProvider so
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars are used directly.
+# ====================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-configmap
+  namespace: data-platform
+data:
+  # ============================================================
+  # spark-defaults.conf
+  # Credentials are referenced via ${env:VAR} — injected from
+  # the "spark-minio-secret" K8s Secret at container startup.
+  # ============================================================
+  spark-defaults.conf: |
+    spark.eventLog.enabled=true
+    spark.eventLog.dir=s3a://iceberg/spark-events
+    spark.history.fs.logDirectory=s3a://iceberg/spark-events
+
+    # ---- Gravitino Iceberg REST Catalog (primary) ----
+    spark.jars.packages=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5
+    spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.catalog_iceberg=org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.catalog_iceberg.type=rest
+    spark.sql.catalog.catalog_iceberg.uri=http://gravitino:9001/iceberg/
+    spark.sql.catalog.catalog_iceberg.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+    spark.sql.catalog.catalog_iceberg.s3.endpoint=http://minio:9000
+    spark.sql.catalog.catalog_iceberg.s3.path-style-access=true
+    spark.sql.catalog.catalog_iceberg.s3.access-key-id=${env:MINIO_ACCESS_KEY}
+    spark.sql.catalog.catalog_iceberg.s3.secret-access-key=${env:MINIO_SECRET_KEY}
+    spark.sql.catalog.catalog_iceberg.client.region=us-east-1
+
+    # ---- Hive Metastore Catalog (secondary, for HMS-backed tables) ----
+    spark.sql.catalog.hive_catalog=org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.hive_catalog.type=hive
+    spark.sql.catalog.hive_catalog.uri=thrift://hive-metastore:9083
+    spark.sql.catalog.hive_catalog.warehouse=s3a://iceberg/lakehouse
+
+    # ---- Monitoring ----
+    spark.ui.prometheus.enabled=true
+    spark.metrics.conf=/opt/spark/conf/metrics.properties
+
+    # ---- Suppress Warnings ----
+    spark.driver.extraJavaOptions=-Dlog4j2.logger.NativeCodeLoader.name=org.apache.hadoop.util.NativeCodeLoader -Dlog4j2.logger.NativeCodeLoader.level=ERROR
+    spark.executor.extraJavaOptions=-Dlog4j2.logger.NativeCodeLoader.name=org.apache.hadoop.util.NativeCodeLoader -Dlog4j2.logger.NativeCodeLoader.level=ERROR
+    spark.jars.excludes=org.slf4j:slf4j-api
+
+    spark.metrics.conf.*.sink.prometheus.class=org.apache.spark.metrics.sink.PrometheusServlet
+    spark.metrics.conf.*.sink.prometheus.path=/metrics/prometheus
+    spark.metrics.conf.driver.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+    spark.metrics.conf.executor.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+
+  # FIX E2: core-site.xml now uses EnvironmentVariableCredentialsProvider
+  # instead of broken ${env:VAR} syntax (which Hadoop XML doesn't support).
+  # Requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY env vars.
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+    </configuration>
+
+  metrics.properties: |
+    *.sink.prometheus.class=org.apache.spark.metrics.sink.PrometheusServlet
+    *.sink.prometheus.path=/metrics/prometheus
+    driver.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+    executor.source.jvm.class=org.apache.spark.metrics.source.JvmSource

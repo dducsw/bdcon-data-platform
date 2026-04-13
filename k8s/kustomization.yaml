@@ -1,0 +1,111 @@
+# ====================================================================
+# Kustomization — base layer
+# Usage:
+#   Production:  kubectl apply -k k8s/
+#   Dev overlay: kubectl apply -k k8s/overlays/dev/
+# ====================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data-platform
+
+resources:
+  # ----------------------------------------------------------------
+  # 0. Namespace must exist before any namespaced resources
+  # ----------------------------------------------------------------
+  - 00-namespace.yaml
+
+  # ----------------------------------------------------------------
+  # 1. ESO SecretStore (needs namespace to exist first)
+  # ----------------------------------------------------------------
+  - common/secret-store.yaml
+
+  # ----------------------------------------------------------------
+  # 2. ExternalSecrets — ESO creates K8s Secrets from GCP SM
+  # ----------------------------------------------------------------
+  - secrets/minio-secret.yaml           # ExternalSecret → K8s Secret "minio-secret"
+  - secrets/postgres-secret.yaml        # ExternalSecret → K8s Secret "postgres-secret"
+  - secrets/spark-minio-secret.yaml     # ExternalSecret → K8s Secret "spark-minio-secret"
+  - secrets/superset-secret.yaml        # ExternalSecret → K8s Secret "superset-secret"
+
+  # ----------------------------------------------------------------
+  # 3. Security & Resource Governance
+  # ----------------------------------------------------------------
+  - common/resource-quota.yaml
+  - common/network-policy.yaml
+
+  # ----------------------------------------------------------------
+  # 4. Storage (PVCs must exist before StatefulSets)
+  # NOTE: MinIO uses volumeClaimTemplates — no standalone PVC needed.
+  # ----------------------------------------------------------------
+  - storage/postgres-pvc.yaml
+  - storage/misc-pvc.yaml
+  - storage/storage-classes.yaml
+
+  # ----------------------------------------------------------------
+  # 4. Database & Object Storage
+  # ----------------------------------------------------------------
+  - postgres/init-configmap.yaml
+  - postgres/statefulset.yaml
+  - postgres/service.yaml
+  - minio/statefulset.yaml
+  - minio/service.yaml
+  - minio/service-headless.yaml
+  - minio/job-bucket-setup.yaml
+
+  # ----------------------------------------------------------------
+  # 5. Catalog Layer
+  # ----------------------------------------------------------------
+  - gravitino/configmap.yaml
+  - gravitino/deployment.yaml
+  - gravitino/service.yaml
+  - hive-metastore/configmap.yaml
+  - hive-metastore/statefulset.yaml
+  - hive-metastore/service.yaml
+
+  # ----------------------------------------------------------------
+  # 6. Compute Layer (Apache Spark Kubernetes Operator)
+  # ----------------------------------------------------------------
+  - spark/configmap.yaml
+  - spark/spark-rbac.yaml
+
+  # ----------------------------------------------------------------
+  # 7. Streaming Layer (Strimzi KRaft)
+  # ----------------------------------------------------------------
+  - kafka/kafka-cluster.yaml
+  - kafka/kafka-topic.yaml
+
+  # ----------------------------------------------------------------
+  # 8. Query Layer (Trino — Managed by Helm)
+  # ----------------------------------------------------------------
+
+  # ----------------------------------------------------------------
+  # 9. Cache Layer
+  # ----------------------------------------------------------------
+  - redis/statefulset.yaml              # Moved to infra node (On-demand)
+
+  # ----------------------------------------------------------------
+  # 10. Autoscaling (HPA requires metrics-server — bundled with GKE)
+  # ----------------------------------------------------------------
+
+  # ----------------------------------------------------------------
+  # 11. Availability & Disruption Budgets
+  # ----------------------------------------------------------------
+  - pdb/pdb.yaml
+
+  # ----------------------------------------------------------------
+  # 12. Observability (requires kube-prometheus-stack installed via Helm)
+  # ----------------------------------------------------------------
+  - monitoring/service-monitors.yaml
+  - monitoring/grafana-exporters.yaml
+
+  # ----------------------------------------------------------------
+  # 13. Visualization
+  # ----------------------------------------------------------------
+  - superset/init-configmap.yaml
+  - superset/deployment.yaml
+
+  # ----------------------------------------------------------------
+  # 14. Routing & Ingress
+  # ----------------------------------------------------------------
+  - ingress/ingress.yaml

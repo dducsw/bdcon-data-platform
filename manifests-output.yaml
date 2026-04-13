@@ -1,0 +1,1807 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/part-of: data-platform
+  name: data-platform
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: data-platform-quota
+  namespace: data-platform
+spec:
+  hard:
+    limits.cpu: "48"
+    limits.memory: 128Gi
+    persistentvolumeclaims: "30"
+    pods: "100"
+    requests.cpu: "24"
+    requests.memory: 80Gi
+---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: balanced-rwo
+parameters:
+  type: pd-balanced
+provisioner: pd.csi.storage.gke.io
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    iam.gke.io/gcp-service-account: eso-sa@PROJECT_ID.iam.gserviceaccount.com
+  name: eso-sa
+  namespace: data-platform
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-driver
+  namespace: data-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver-role
+  namespace: data-platform
+rules:
+- apiGroups:
+  - ""
+  - extensions
+  - apps
+  resources:
+  - pods
+  - services
+  - configmaps
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - update
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver-role-binding
+  namespace: data-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-driver-role
+subjects:
+- kind: ServiceAccount
+  name: spark-driver
+  namespace: data-platform
+---
+apiVersion: v1
+data:
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+    </configuration>
+  gravitino.conf.template: |
+    gravitino.auxService.names=iceberg-rest
+    gravitino.iceberg-rest.classpath=iceberg-rest-server/libs, iceberg-rest-server/conf
+
+    gravitino.iceberg-rest.host = 0.0.0.0
+    gravitino.iceberg-rest.httpPort = 9001
+
+    gravitino.iceberg-rest.catalog-backend=jdbc
+    gravitino.iceberg-rest.uri=jdbc:postgresql://postgres:5432/catalog_metastore_db
+    gravitino.iceberg-rest.warehouse=s3a://iceberg/lakehouse
+    gravitino.iceberg-rest.catalog-backend-name=jdbc
+    gravitino.iceberg-rest.jdbc-user=__POSTGRES_USER__
+    gravitino.iceberg-rest.jdbc-password=__POSTGRES_PASSWORD__
+    gravitino.iceberg-rest.jdbc-initialize=true
+    gravitino.iceberg-rest.jdbc-driver=org.postgresql.Driver
+
+    gravitino.iceberg-rest.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+    gravitino.iceberg-rest.s3-endpoint=http://minio:9000
+    gravitino.iceberg-rest.s3-access-key-id=__MINIO_ACCESS_KEY__
+    gravitino.iceberg-rest.s3-secret-access-key=__MINIO_SECRET_KEY__
+    gravitino.iceberg-rest.s3-path-style-access=true
+    gravitino.iceberg-rest.client.region=us-east-1
+kind: ConfigMap
+metadata:
+  name: gravitino-configmap
+  namespace: data-platform
+---
+apiVersion: v1
+data:
+  hive-site.xml.template: |
+    <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <property>
+        <name>javax.jdo.option.ConnectionURL</name>
+        <value>jdbc:postgresql://postgres:5432/hive_metastore_db</value>
+      </property>
+      <property>
+        <name>javax.jdo.option.ConnectionDriverName</name>
+        <value>org.postgresql.Driver</value>
+      </property>
+      <property>
+        <name>javax.jdo.option.ConnectionUserName</name>
+        <value>__POSTGRES_USER__</value>
+      </property>
+      <property>
+        <name>javax.jdo.option.ConnectionPassword</name>
+        <value>__POSTGRES_PASSWORD__</value>
+      </property>
+      <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>s3a://iceberg/lakehouse</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>datanucleus.schema.autoCreateAll</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://0.0.0.0:9083</value>
+      </property>
+      <property>
+        <name>hive.metastore.port</name>
+        <value>9083</value>
+      </property>
+    </configuration>
+kind: ConfigMap
+metadata:
+  name: hive-metastore-configmap
+  namespace: data-platform
+---
+apiVersion: v1
+data:
+  init-db.sql: |
+    -- Create catalogs and airflow databases
+    CREATE DATABASE catalog_metastore_db;
+    CREATE DATABASE hive_metastore_db;
+    CREATE DATABASE airflow;
+kind: ConfigMap
+metadata:
+  name: postgres-init-configmap
+  namespace: data-platform
+---
+apiVersion: v1
+data:
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio:9000</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+    </configuration>
+  metrics.properties: |
+    *.sink.prometheus.class=org.apache.spark.metrics.sink.PrometheusServlet
+    *.sink.prometheus.path=/metrics/prometheus
+    driver.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+    executor.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+  spark-defaults.conf: |
+    spark.eventLog.enabled=true
+    spark.eventLog.dir=/opt/spark/spark-events
+    spark.history.fs.logDirectory=/opt/spark/spark-events
+
+    # ---- Gravitino Iceberg REST Catalog (primary) ----
+    spark.jars.packages=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5
+    spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.catalog_iceberg=org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.catalog_iceberg.type=rest
+    spark.sql.catalog.catalog_iceberg.uri=http://gravitino:9001/iceberg/
+    spark.sql.catalog.catalog_iceberg.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+    spark.sql.catalog.catalog_iceberg.s3.endpoint=http://minio:9000
+    spark.sql.catalog.catalog_iceberg.s3.path-style-access=true
+    spark.sql.catalog.catalog_iceberg.s3.access-key-id=${env:MINIO_ACCESS_KEY}
+    spark.sql.catalog.catalog_iceberg.s3.secret-access-key=${env:MINIO_SECRET_KEY}
+    spark.sql.catalog.catalog_iceberg.client.region=us-east-1
+
+    # ---- Hive Metastore Catalog (secondary, for HMS-backed tables) ----
+    spark.sql.catalog.hive_catalog=org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.hive_catalog.type=hive
+    spark.sql.catalog.hive_catalog.uri=thrift://hive-metastore:9083
+    spark.sql.catalog.hive_catalog.warehouse=s3a://iceberg/lakehouse
+
+    # ---- Monitoring ----
+    spark.ui.prometheus.enabled=true
+    spark.metrics.conf=/opt/spark/conf/metrics.properties
+
+    # ---- Suppress Warnings ----
+    spark.driver.extraJavaOptions=-Dlog4j2.logger.NativeCodeLoader.name=org.apache.hadoop.util.NativeCodeLoader -Dlog4j2.logger.NativeCodeLoader.level=ERROR
+    spark.executor.extraJavaOptions=-Dlog4j2.logger.NativeCodeLoader.name=org.apache.hadoop.util.NativeCodeLoader -Dlog4j2.logger.NativeCodeLoader.level=ERROR
+    spark.jars.excludes=org.slf4j:slf4j-api
+
+    spark.metrics.conf.*.sink.prometheus.class=org.apache.spark.metrics.sink.PrometheusServlet
+    spark.metrics.conf.*.sink.prometheus.path=/metrics/prometheus
+    spark.metrics.conf driver.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+    spark.metrics.conf.executor.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+kind: ConfigMap
+metadata:
+  name: spark-configmap
+  namespace: data-platform
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gravitino
+  name: gravitino
+  namespace: data-platform
+spec:
+  ports:
+  - name: web
+    port: 8090
+    targetPort: 8090
+  - name: iceberg-rest
+    port: 9001
+    targetPort: 9001
+  selector:
+    app: gravitino
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: hive-metastore
+  name: hive-metastore
+  namespace: data-platform
+spec:
+  ports:
+  - name: thrift
+    port: 9083
+    targetPort: 9083
+  selector:
+    app: hive-metastore
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: kafka-exporter
+  name: kafka-exporter
+  namespace: data-platform
+spec:
+  ports:
+  - name: metrics
+    port: 9308
+    targetPort: 9308
+  selector:
+    app: kafka-exporter
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: minio
+  name: minio
+  namespace: data-platform
+spec:
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+  selector:
+    app: minio
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: minio
+  name: minio-headless
+  namespace: data-platform
+spec:
+  clusterIP: None
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+  selector:
+    app: minio
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: postgres
+  name: postgres
+  namespace: data-platform
+spec:
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+  selector:
+    app: postgres
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: redis
+  name: redis
+  namespace: data-platform
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: redis-exporter
+  name: redis-exporter
+  namespace: data-platform
+spec:
+  ports:
+  - name: metrics
+    port: 9121
+    targetPort: 9121
+  selector:
+    app: redis-exporter
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset
+  namespace: data-platform
+spec:
+  ports:
+  - port: 8088
+    targetPort: 8088
+  selector:
+    app: superset
+  type: ClusterIP
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: data-platform-limits
+  namespace: data-platform
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    max:
+      cpu: "8"
+      memory: 32Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+    type: Container
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard-rwo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: balanced-rwo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: balanced-rwo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: superset-pvc
+  namespace: data-platform
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard-rwo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: gravitino
+  name: gravitino
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gravitino
+  template:
+    metadata:
+      labels:
+        app: gravitino
+    spec:
+      containers:
+      - env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: spark-minio-secret
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: spark-minio-secret
+        image: REGISTRY/gravitino:1.1.0
+        livenessProbe:
+          httpGet:
+            path: /api/version
+            port: 8090
+          periodSeconds: 20
+        name: gravitino
+        ports:
+        - containerPort: 8090
+          name: web
+        - containerPort: 9001
+          name: iceberg-rest
+        readinessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /api/version
+            port: 8090
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /api/version
+            port: 8090
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /tmp/conf
+          name: config-rendered
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - |
+          until nc -z postgres 5432; do
+            echo "Waiting for PostgreSQL..."; sleep 3;
+          done
+        image: busybox:1.36
+        name: wait-for-postgres
+      - command:
+        - sh
+        - -c
+        - |
+          until wget -q -O- http://minio:9000/minio/health/ready; do
+            echo "Waiting for MinIO..."; sleep 5;
+          done
+        image: busybox:1.36
+        name: wait-for-minio
+      - command:
+        - sh
+        - -c
+        - |
+          cp /tmp/conf-template/gravitino.conf.template /tmp/conf/gravitino.conf
+          sed -i "s|__POSTGRES_USER__|$POSTGRES_USER|g" /tmp/conf/gravitino.conf
+          sed -i "s|__POSTGRES_PASSWORD__|$POSTGRES_PASSWORD|g" /tmp/conf/gravitino.conf
+          sed -i "s|__MINIO_ACCESS_KEY__|$MINIO_ACCESS_KEY|g" /tmp/conf/gravitino.conf
+          sed -i "s|__MINIO_SECRET_KEY__|$MINIO_SECRET_KEY|g" /tmp/conf/gravitino.conf
+          cp /tmp/conf-template/core-site.xml /tmp/conf/core-site.xml
+          echo "Config rendered successfully."
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_USER
+              name: postgres-secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: postgres-secret
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: spark-minio-secret
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: spark-minio-secret
+        image: busybox:1.36
+        name: render-config
+        volumeMounts:
+        - mountPath: /tmp/conf-template
+          name: config-template
+        - mountPath: /tmp/conf
+          name: config-rendered
+      nodeSelector:
+        role: infra
+      volumes:
+      - configMap:
+          name: gravitino-configmap
+        name: config-template
+      - emptyDir: {}
+        name: config-rendered
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: kafka-exporter
+  name: kafka-exporter
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-exporter
+    spec:
+      containers:
+      - args:
+        - --kafka.server=data-platform-kafka-bootstrap.data-platform.svc:9092
+        image: danielqsj/kafka-exporter:latest
+        name: kafka-exporter
+        ports:
+        - containerPort: 9308
+          name: metrics
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      nodeSelector:
+        role: compute
+      tolerations:
+      - effect: NoSchedule
+        key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: redis-exporter
+  name: redis-exporter
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+    spec:
+      containers:
+      - env:
+        - name: REDIS_ADDR
+          value: redis:6379
+        image: oliver006/redis_exporter:latest
+        name: redis-exporter
+        ports:
+        - containerPort: 9121
+          name: metrics
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+      nodeSelector:
+        role: compute
+      tolerations:
+      - effect: NoSchedule
+        key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: superset
+  name: superset
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: superset
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - /app/init.sh
+        env:
+        - name: SUPERSET_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: SUPERSET_SECRET_KEY
+              name: superset-secret
+        - name: PYTHONPATH
+          value: /usr/local/lib/python3.10/site-packages
+        image: REGISTRY/superset:latest
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8088
+          initialDelaySeconds: 60
+          periodSeconds: 20
+        name: superset
+        ports:
+        - containerPort: 8088
+        readinessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /health
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /health
+            port: 8088
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /app/superset_home
+          name: superset-data
+      nodeSelector:
+        role: query
+      tolerations:
+      - effect: NoSchedule
+        key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+      volumes:
+      - name: superset-data
+        persistentVolumeClaim:
+          claimName: superset-pvc
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: hive-metastore
+  name: hive-metastore
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hive-metastore
+  serviceName: hive-metastore
+  template:
+    metadata:
+      labels:
+        app: hive-metastore
+    spec:
+      containers:
+      - env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: spark-minio-secret
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: spark-minio-secret
+        image: REGISTRY/hive-metastore:3.1.2
+        livenessProbe:
+          periodSeconds: 20
+          tcpSocket:
+            port: 9083
+        name: hive-metastore
+        ports:
+        - containerPort: 9083
+          name: thrift
+        readinessProbe:
+          failureThreshold: 6
+          periodSeconds: 10
+          tcpSocket:
+            port: 9083
+        resources:
+          limits:
+            cpu: "2"
+            memory: 3Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        startupProbe:
+          failureThreshold: 30
+          periodSeconds: 10
+          tcpSocket:
+            port: 9083
+        volumeMounts:
+        - mountPath: /opt/hive/conf/hive-site.xml
+          name: config-rendered
+          subPath: hive-site.xml
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - |
+          until nc -z postgres 5432; do
+            echo "Waiting for PostgreSQL..."; sleep 3;
+          done
+        image: busybox:1.36
+        name: wait-for-postgres
+      - command:
+        - sh
+        - -c
+        - |
+          until wget -q -O- http://minio:9000/minio/health/ready; do
+            echo "Waiting for MinIO..."; sleep 5;
+          done
+        image: busybox:1.36
+        name: wait-for-minio
+      - command:
+        - sh
+        - -c
+        - |
+          cp /tmp/conf-template/hive-site.xml.template /tmp/conf/hive-site.xml
+          sed -i "s|__POSTGRES_USER__|$POSTGRES_USER|g" /tmp/conf/hive-site.xml
+          sed -i "s|__POSTGRES_PASSWORD__|$POSTGRES_PASSWORD|g" /tmp/conf/hive-site.xml
+          echo "hive-site.xml rendered successfully."
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_USER
+              name: postgres-secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: postgres-secret
+        image: busybox:1.36
+        name: render-config
+        volumeMounts:
+        - mountPath: /tmp/conf-template
+          name: config-template
+        - mountPath: /tmp/conf
+          name: config-rendered
+      nodeSelector:
+        role: infra
+      volumes:
+      - configMap:
+          name: hive-metastore-configmap
+        name: config-template
+      - emptyDir: {}
+        name: config-rendered
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: minio
+  name: minio
+  namespace: data-platform
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: minio
+  serviceName: minio-headless
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: minio
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - args:
+        - server
+        - http://minio-{0...3}.minio-headless.data-platform.svc.cluster.local/data
+        - --address
+        - :9000
+        - --console-address
+        - :9001
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ROOT_USER
+              name: minio-secret
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ROOT_PASSWORD
+              name: minio-secret
+        - name: MINIO_PROMETHEUS_AUTH_TYPE
+          value: public
+        image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 20
+          periodSeconds: 20
+        name: minio
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        readinessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          periodSeconds: 10
+        volumeMounts:
+        - mountPath: /data
+          name: minio-data
+      terminationGracePeriodSeconds: 15
+      tolerations:
+      - effect: NoSchedule
+        key: cloud.google.com/gke-spot
+        operator: Exists
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app: minio
+        maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+  volumeClaimTemplates:
+  - metadata:
+      name: minio-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+      storageClassName: balanced-rwo
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: postgres
+  name: postgres
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  serviceName: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_USER
+              name: postgres-secret
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_PASSWORD
+              name: postgres-secret
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              key: POSTGRES_DB
+              name: postgres-secret
+        image: postgres:16
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        name: postgres
+        ports:
+        - containerPort: 5432
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          failureThreshold: 12
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: postgres-data
+        - mountPath: /docker-entrypoint-initdb.d
+          name: init-sql
+      nodeSelector:
+        role: infra
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - configMap:
+          name: postgres-init-configmap
+        name: init-sql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: redis
+  name: redis
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  serviceName: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - command:
+        - redis-server
+        - --appendonly yes
+        - --save 60 1
+        image: redis:7.2-bookworm
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        name: redis
+        ports:
+        - containerPort: 6379
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        volumeMounts:
+        - mountPath: /data
+          name: redis-data
+      nodeSelector:
+        role: infra
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-broker-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/name: data-platform-kafka-broker-pool
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-controller-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      strimzi.io/name: data-platform-kafka-controller-pool
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: minio-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: minio
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trino-coordinator-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: coordinator
+      app.kubernetes.io/name: trino
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trino-worker-pdb
+  namespace: data-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker
+      app.kubernetes.io/name: trino
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-setup
+  namespace: data-platform
+spec:
+  template:
+    spec:
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - |
+          mc alias set myminio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+          mc mb myminio/iceberg --ignore-existing
+          mc mb myminio/iceberg/lakehouse --ignore-existing
+          mc anonymous set public myminio/iceberg/lakehouse
+          echo "MinIO bucket setup complete!"
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ROOT_USER
+              name: minio-secret
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ROOT_PASSWORD
+              name: minio-secret
+        image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+        name: minio-client
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - |
+          until wget -q -O- http://minio:9000/minio/health/ready; do
+            echo "Waiting for MinIO..."; sleep 5;
+          done
+        image: busybox:1.36
+        name: wait-for-minio
+      restartPolicy: OnFailure
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata:
+  name: gcp-secret-manager
+  namespace: data-platform
+spec:
+  provider:
+    gcpsm:
+      auth:
+        workloadIdentity:
+          clusterLocation: asia-southeast1-a
+          clusterName: data-platform-cluster
+          clusterProjectID: PROJECT_ID
+          serviceAccountRef:
+            name: eso-sa
+            namespace: data-platform
+      projectID: PROJECT_ID
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: minio-secret
+  namespace: data-platform
+spec:
+  data:
+  - remoteRef:
+      key: minio-root-user
+    secretKey: MINIO_ROOT_USER
+  - remoteRef:
+      key: minio-root-password
+    secretKey: MINIO_ROOT_PASSWORD
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    creationPolicy: Owner
+    name: minio-secret
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: postgres-secret
+  namespace: data-platform
+spec:
+  data:
+  - remoteRef:
+      key: postgres-user
+    secretKey: POSTGRES_USER
+  - remoteRef:
+      key: postgres-password
+    secretKey: POSTGRES_PASSWORD
+  - remoteRef:
+      key: postgres-db
+    secretKey: POSTGRES_DB
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    creationPolicy: Owner
+    name: postgres-secret
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: spark-minio-secret
+  namespace: data-platform
+spec:
+  data:
+  - remoteRef:
+      key: minio-root-user
+    secretKey: MINIO_ACCESS_KEY
+  - remoteRef:
+      key: minio-root-password
+    secretKey: MINIO_SECRET_KEY
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    creationPolicy: Owner
+    name: spark-minio-secret
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: superset-secret
+  namespace: data-platform
+spec:
+  data:
+  - remoteRef:
+      key: superset-secret-key
+    secretKey: SUPERSET_SECRET_KEY
+  refreshInterval: 24h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: gcp-secret-manager
+  target:
+    creationPolicy: Owner
+    name: superset-secret
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  annotations:
+    strimzi.io/kraft: enabled
+    strimzi.io/node-pools: enabled
+  name: data-platform-kafka
+  namespace: data-platform
+spec:
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+  kafka:
+    config:
+      default.replication.factor: 2
+      min.insync.replicas: 1
+      offsets.topic.replication.factor: 2
+      transaction.state.log.min.isr: 1
+      transaction.state.log.replication.factor: 2
+    listeners:
+    - name: plain
+      port: 9092
+      tls: false
+      type: internal
+    - name: external
+      port: 9094
+      tls: false
+      type: nodeport
+    metadataVersion: 3.8-IV0
+    version: 3.8.0
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  labels:
+    strimzi.io/cluster: data-platform-kafka
+  name: broker-pool
+  namespace: data-platform
+spec:
+  replicas: 2
+  resources:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 2Gi
+  roles:
+  - broker
+  storage:
+    type: jbod
+    volumes:
+    - class: balanced-rwo
+      deleteClaim: false
+      id: 0
+      size: 20Gi
+      type: persistent-claim
+  template:
+    pod:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: role
+                operator: In
+                values:
+                - compute
+                - query
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: strimzi.io/name
+                operator: In
+                values:
+                - data-platform-kafka-broker-pool
+            topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 15
+      tolerations:
+      - effect: NoSchedule
+        key: cloud.google.com/gke-spot
+        operator: Equal
+        value: "true"
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  labels:
+    strimzi.io/cluster: data-platform-kafka
+  name: controller-pool
+  namespace: data-platform
+spec:
+  replicas: 1
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  roles:
+  - controller
+  storage:
+    type: jbod
+    volumes:
+    - class: balanced-rwo
+      deleteClaim: false
+      id: 0
+      size: 5Gi
+      type: persistent-claim
+  template:
+    pod:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: role
+                operator: In
+                values:
+                - infra
+      terminationGracePeriodSeconds: 15
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  labels:
+    strimzi.io/cluster: data-platform-kafka
+  name: buswaypoints
+  namespace: data-platform
+spec:
+  config:
+    retention.ms: 604800000
+    segment.bytes: 1073741824
+  partitions: 3
+  replicas: 2
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: kafka-exporter-monitor
+  namespace: data-platform
+spec:
+  endpoints:
+  - path: /metrics
+    port: metrics
+  selector:
+    matchLabels:
+      app: kafka-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: minio-monitor
+  namespace: data-platform
+spec:
+  endpoints:
+  - path: /minio/v2/metrics/cluster
+    port: api
+  selector:
+    matchLabels:
+      app: minio
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: redis-exporter-monitor
+  namespace: data-platform
+spec:
+  endpoints:
+  - path: /metrics
+    port: metrics
+  selector:
+    matchLabels:
+      app: redis-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: spark-monitor
+  namespace: data-platform
+spec:
+  endpoints:
+  - path: /metrics/master/prometheus/
+    port: webui
+  selector:
+    matchLabels:
+      app: spark-master
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    release: kube-prometheus-stack
+  name: trino-monitor
+  namespace: data-platform
+spec:
+  endpoints:
+  - path: /metrics
+    port: http
+  selector:
+    matchLabels:
+      app: trino-coordinator
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: data-platform-ingress
+  namespace: data-platform
+spec:
+  ingressClassName: cilium
+  rules:
+  - host: trino.data.local
+    http:
+      paths:
+      - backend:
+          service:
+            name: trino
+            port:
+              number: 8080
+        path: /
+        pathType: Prefix
+  - host: superset.data.local
+    http:
+      paths:
+      - backend:
+          service:
+            name: superset
+            port:
+              number: 8088
+        path: /
+        pathType: Prefix
+  - host: grafana.data.local
+    http:
+      paths:
+      - backend:
+          service:
+            name: kube-prometheus-stack-grafana
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  - host: airflow.data.local
+    http:
+      paths:
+      - backend:
+          service:
+            name: airflow-webserver
+            port:
+              number: 8080
+        path: /
+        pathType: Prefix
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: data-platform
+spec:
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-egress
+  namespace: data-platform
+spec:
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+  - to:
+    - podSelector: {}
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-superset
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8088
+  podSelector:
+    matchLabels:
+      app: superset
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-trino
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 8080
+  podSelector:
+    matchLabels:
+      app: trino-coordinator
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-ingress
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+    ports:
+    - port: 9000
+    - port: 9001
+  podSelector:
+    matchLabels:
+      app: minio
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-ingress
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gravitino
+    - podSelector:
+        matchLabels:
+          app: hive-metastore
+    - podSelector:
+        matchLabels:
+          component: scheduler
+    - podSelector:
+        matchLabels:
+          component: webserver
+    ports:
+    - port: 5432
+  podSelector:
+    matchLabels:
+      app: postgres
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+    ports:
+    - port: 8080
+    - port: 7077
+    - port: 9000
+    - port: 9308
+    - port: 9121
+  podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-internal
+  namespace: data-platform
+spec:
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          spark-role: worker
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          spark-role: worker
+    ports:
+    - port: 7077
+    - port: 8080
+  podSelector:
+    matchLabels:
+      app: spark-master
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-trino-internal
+  namespace: data-platform
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: trino-worker
+    ports:
+    - port: 8080
+  podSelector:
+    matchLabels:
+      app: trino-coordinator
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress

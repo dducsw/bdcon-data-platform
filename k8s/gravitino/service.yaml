@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gravitino
+  namespace: data-platform
+  labels:
+    app: gravitino
+spec:
+  type: ClusterIP
+  selector:
+    app: gravitino
+  ports:
+    - name: web
+      port: 8090
+      targetPort: 8090
+    - name: iceberg-rest
+      port: 9001
+      targetPort: 9001

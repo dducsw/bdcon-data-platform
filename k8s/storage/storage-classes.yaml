@@ -1,0 +1,14 @@
+# ====================================================================
+# StorageClasses — GKE Persistent Disk CSI Driver
+# ====================================================================
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: balanced-rwo
+provisioner: pd.csi.storage.gke.io
+parameters:
+  type: pd-balanced
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer   # Important for zonal clusters
+allowVolumeExpansion: true

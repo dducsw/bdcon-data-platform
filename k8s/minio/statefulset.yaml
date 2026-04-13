@@ -1,0 +1,114 @@
+# ====================================================================
+# MinIO StatefulSet — Distributed Cluster Mode (3 Replicas)
+# Changed: 4 → 3 replicas to match the 3-node GKE topology.
+# MinIO requires replicas >= 4 for erasure coding. With 3 replicas
+# we use "distributed" mode with reduced redundancy (1 parity drive).
+# Added podAntiAffinity to ensure pods are spread across nodes.
+# ====================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: data-platform
+  labels:
+    app: minio
+spec:
+  serviceName: minio-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: minio
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: minio
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Exists"
+          effect: "NoSchedule"
+      nodeSelector:
+        role: infra
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+          args:
+            - server
+            - http://minio-{0...2}.minio-headless.data-platform.svc.cluster.local/data
+            - --address
+            - ":9000"
+            - --console-address
+            - ":9001"
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: "public"
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            failureThreshold: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: balanced-rwo
+        resources:
+          requests:
+            storage: 20Gi

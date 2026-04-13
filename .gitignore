@@ -1,0 +1,37 @@
+infrastructure/minio/volumes
+infrastructure/postgres/volumes
+infrastructure/gravitino/volumes
+infrastructure/spark/logs
+.venv
+
+data/HPCLAB/part1
+data/HPCLAB/part2
+data/ufms
+
+notebooks/.ipynb_checkpoints/
+notebooks/__pycache__/
+notebooks/metastore_db/
+notebooks/derby.log
+notebooks
+producer_checkpoint.json
+
+# ---------------------------------------------------------------
+# Terraform — never commit state or real variable values
+# ---------------------------------------------------------------
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfstate.*.backup
+terraform/terraform.tfvars
+# Keep the example file: terraform/terraform.tfvars.example is safe to commit
+
+# ---------------------------------------------------------------
+# Kubernetes Plain Secrets
+# NOTE: ExternalSecret manifests (k8s/secrets/*.yaml) are safe to
+# commit because they only reference GCP Secret Manager paths.
+# This rule is a safety net — if someone accidentally creates a
+# plain Secret yaml, it won't be tracked.
+# Plain secrets look like: kind: Secret  (not ExternalSecret)
+# ---------------------------------------------------------------
+# k8s/secrets/plain-*.yaml   # Uncomment if you add plain-secret files

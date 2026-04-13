@@ -1,0 +1,15 @@
+# ====================================================================
+# PostgreSQL Init ConfigMap
+# Creates databases for all services: Gravitino, Hive, and Airflow
+# ====================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-configmap
+  namespace: data-platform
+data:
+  init-db.sql: |
+    -- Create catalogs and airflow databases
+    CREATE DATABASE catalog_metastore_db;
+    CREATE DATABASE hive_metastore_db;
+    CREATE DATABASE airflow;

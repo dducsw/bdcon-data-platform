@@ -1,0 +1,4 @@
+kafka-python
+redis
+pandas
+tqdm

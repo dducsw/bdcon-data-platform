@@ -1,0 +1,138 @@
+# ====================================================================
+# Gravitino Deployment — node-1 (infra, On-demand)
+# Iceberg REST Catalog server
+# Init container renders config template with secrets from env vars.
+# ====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitino
+  namespace: data-platform
+  labels:
+    app: gravitino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gravitino
+  template:
+    metadata:
+      labels:
+        app: gravitino
+    spec:
+      nodeSelector:
+        role: infra
+      initContainers:
+        # Wait for PostgreSQL before starting Gravitino
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "Waiting for PostgreSQL..."; sleep 3;
+              done
+        # Wait for MinIO before starting Gravitino
+        - name: wait-for-minio
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -q -O- http://minio:9000/minio/health/ready; do
+                echo "Waiting for MinIO..."; sleep 5;
+              done
+        # Render config template: replace placeholders with actual secret values
+        - name: render-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /tmp/conf-template/gravitino.conf.template /tmp/conf/gravitino.conf
+              sed -i "s|__POSTGRES_USER__|$POSTGRES_USER|g" /tmp/conf/gravitino.conf
+              sed -i "s|__POSTGRES_PASSWORD__|$POSTGRES_PASSWORD|g" /tmp/conf/gravitino.conf
+              sed -i "s|__MINIO_ACCESS_KEY__|$MINIO_ACCESS_KEY|g" /tmp/conf/gravitino.conf
+              sed -i "s|__MINIO_SECRET_KEY__|$MINIO_SECRET_KEY|g" /tmp/conf/gravitino.conf
+              cp /tmp/conf-template/core-site.xml /tmp/conf/core-site.xml
+              echo "Config rendered successfully."
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_SECRET_KEY
+          volumeMounts:
+            - name: config-template
+              mountPath: /tmp/conf-template
+            - name: config-rendered
+              mountPath: /tmp/conf
+      containers:
+        - name: gravitino
+          image: apache/gravitino:1.1.0   # Official Apache image as requested
+          ports:
+            - name: web
+              containerPort: 8090
+            - name: iceberg-rest
+              containerPort: 9001
+          env:
+            # For core-site.xml EnvironmentVariableCredentialsProvider
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_SECRET_KEY
+          volumeMounts:
+            - name: config-rendered
+              mountPath: /tmp/conf
+          startupProbe:
+            httpGet:
+              path: /api/version
+              port: 8090
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/version
+              port: 8090
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: 8090
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: config-template
+          configMap:
+            name: gravitino-configmap
+        - name: config-rendered
+          emptyDir: {}

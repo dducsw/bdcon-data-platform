@@ -1,0 +1,52 @@
+# ====================================================================
+# MinIO Bucket Setup Job
+# Creates the iceberg/lakehouse bucket after MinIO is ready
+# ====================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket-setup
+  namespace: data-platform
+  annotations:
+    # Re-run manually: kubectl delete job minio-bucket-setup -n data-platform && kubectl apply -f minio/job-bucket-setup.yaml
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      activeDeadlineSeconds: 600   # Job stop after 10 mins
+      initContainers:
+        # Wait for MinIO to be ready
+        - name: wait-for-minio
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for MinIO cluster to be ready..."
+              until wget -q --timeout=5 -O- http://minio:9000/minio/health/ready 2>/dev/null; do
+                echo "MinIO not ready, waiting 5s..."; sleep 5;
+              done
+              echo "MinIO is ready!"
+      containers:
+        - name: minio-client
+          image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set myminio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+              mc mb myminio/iceberg --ignore-existing
+              mc mb myminio/iceberg/lakehouse --ignore-existing
+              mc anonymous set public myminio/iceberg/lakehouse
+              echo "MinIO bucket setup complete!"
