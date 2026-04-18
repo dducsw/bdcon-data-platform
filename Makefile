@@ -1,10 +1,7 @@
 .PHONY: help \
-	up-streaming up-lakehouse up-all start-streaming start-lakehouse start-all \
-	down stop restart \
-	init-kafka-topics list-kafka-topics read-kafka-topic install \
 	k8s-deploy k8s-dev k8s-diff k8s-status k8s-pods k8s-logs k8s-start k8s-stop \
 	tf-init tf-validate tf-plan tf-apply tf-destroy tf-fmt \
-	secrets-create
+	secrets-create bootstrap-operators verify-layout
 
 
 # ================================================================
@@ -16,10 +13,9 @@ SERVICE         ?= spark-master      # Override with: make k8s-logs SERVICE=trin
 KAFKA_CONTAINER  = kafka
 BOOTSTRAP_SERVER = localhost:9092
 PYTHON          ?= python3
+TF_ENV          ?= terraform/envs/dev
 
-# Service Groups (Docker Compose — local dev)
-STREAMING_SERVICES = kafka kafka-exporter redis redis-exporter prometheus grafana cadvisor spark-master spark-worker-1 spark-worker-2
-LAKEHOUSE_SERVICES = gravitino postgres minio minio-client trino superset spark-master spark-worker-1 spark-worker-2
+# Removed legacy Docker Compose service groups
 
 
 # ================================================================
@@ -50,11 +46,6 @@ help:
 	@echo "╠══════════════════════════════════════════════════════╣"
 	@echo "║  SECRETS SETUP (run once after cluster creation)     ║"
 	@echo "║  make secrets-create — Push secrets to GCP SM        ║"
-	@echo "╠══════════════════════════════════════════════════════╣"
-	@echo "║  DOCKER COMPOSE (local dev)                          ║"
-	@echo "║  make up-all       — Start all Docker services       ║"
-	@echo "║  make down         — Stop and remove containers      ║"
-	@echo "║  make init-kafka-topics — Create Kafka topics        ║"
 	@echo "╚══════════════════════════════════════════════════════╝"
 	@echo ""
 
@@ -65,7 +56,7 @@ help:
 
 k8s-deploy:
 	@echo "🚀 Deploying all manifests (base)..."
-	kubectl apply -k k8s/
+	kubectl apply -k k8s/base
 
 k8s-dev:
 	@echo "🚀 Deploying with dev overlay (reduced resources)..."
@@ -73,7 +64,7 @@ k8s-dev:
 
 k8s-diff:
 	@echo "🔍 Previewing changes (dry-run)..."
-	kubectl diff -k k8s/ || true
+	kubectl diff -k k8s/overlays/dev/ || true
 
 k8s-status:
 	@echo "📊 Pod status in namespace: $(NAMESPACE)"
@@ -89,11 +80,11 @@ k8s-logs:
 
 k8s-start:
 	@echo "▶️  Starting cluster workloads..."
-	./scripts/gke_schedule.sh start
+	./scripts/deploy/gke_schedule.sh start
 
 k8s-stop:
 	@echo "⏹️  Stopping cluster workloads..."
-	./scripts/gke_schedule.sh stop
+	./scripts/deploy/gke_schedule.sh stop
 
 
 # ================================================================
@@ -102,23 +93,23 @@ k8s-stop:
 
 tf-init:
 	@echo "🔧 Initializing Terraform..."
-	cd terraform && terraform init
+	cd $(TF_ENV) && terraform init
 
 tf-validate:
 	@echo "✅ Validating Terraform configuration..."
-	cd terraform && terraform validate
+	cd $(TF_ENV) && terraform validate
 
 tf-plan:
 	@echo "📋 Planning Terraform changes..."
-	cd terraform && terraform plan -var-file=terraform.tfvars
+	cd $(TF_ENV) && terraform plan -var-file=terraform.tfvars
 
 tf-apply:
 	@echo "⚠️  Applying Terraform changes..."
-	cd terraform && terraform apply -var-file=terraform.tfvars
+	cd $(TF_ENV) && terraform apply -var-file=terraform.tfvars
 
 tf-destroy:
 	@echo "💣 Destroying Terraform-managed infrastructure..."
-	cd terraform && terraform destroy -var-file=terraform.tfvars
+	cd $(TF_ENV) && terraform destroy -var-file=terraform.tfvars
 
 tf-fmt:
 	@echo "🎨 Formatting Terraform files..."
@@ -130,7 +121,7 @@ tf-fmt:
 # ================================================================
 SPARK_REGISTRY  ?= gcr.io/k8s-data-platform-1879
 SPARK_IMAGE     ?= $(SPARK_REGISTRY)/spark:3.5.5
-SPARK_APP       ?= k8s/spark/spark-pi-example.yaml   # Override: make spark-submit SPARK_APP=path/to/app.yaml
+SPARK_APP       ?= k8s/base/platform-services/spark/spark-pi-example.yaml   # Override: make spark-submit SPARK_APP=path/to/app.yaml
 
 spark-operator-install:
 	@echo "🚀 Installing Spark Kubernetes Operator..."
@@ -138,14 +129,14 @@ spark-operator-install:
 	helm repo update spark-operator
 	helm install spark-operator spark-operator/spark-operator \
 		--namespace $(NAMESPACE) \
-		--values k8s/spark/setup/spark-operator-values.yaml
+		--values k8s/base/platform-services/spark/setup/spark-operator-values.yaml
 	@echo "✅ spark-operator installed. Check: make spark-operator-status"
 
 spark-operator-upgrade:
 	@echo "⬆️  Upgrading Spark Kubernetes Operator..."
 	helm upgrade spark-operator spark-operator/spark-operator \
 		--namespace $(NAMESPACE) \
-		--values k8s/spark/setup/spark-operator-values.yaml
+		--values k8s/base/platform-services/spark/setup/spark-operator-values.yaml
 	@echo "✅ spark-operator upgraded."
 
 spark-operator-status:
@@ -161,7 +152,7 @@ spark-operator-logs:
 
 spark-build-image:
 	@echo "🔨 Building Spark Docker image..."
-	cd k8s/spark && docker build -t $(SPARK_IMAGE) \
+	docker build -t $(SPARK_IMAGE) \
 		--build-arg PYTHON_VERSION=3.12.3 \
 		--build-arg SPARK_VERSION=3.5.5 \
 		--build-arg SPARK_SCALA_VERSION=3.5_2.12 \
@@ -171,7 +162,7 @@ spark-build-image:
 		--build-arg AWS_JAVA_SDK_BUNDLE_JAR_VERSION=1.12.367 \
 		--build-arg KAFKA_VERSION=3.9.0 \
 		--build-arg SPARK_KAFKA_VERSION=3.5.5 \
-		-f build/Dockerfile ../../
+		-f k8s/base/platform-services/spark/build/Dockerfile .
 	@echo "✅ Image built: $(SPARK_IMAGE)"
 
 spark-push-image:
@@ -235,63 +226,18 @@ secrets-create:
 	@echo "✅ Secrets created in GCP Secret Manager."
 
 
-# ================================================================
-# Docker Compose (local dev)
-# ================================================================
+# Legacy Docker compose targets removed
 
-up-streaming:
-	@echo "Starting Streaming & Real-time services..."
-	docker-compose up -d $(STREAMING_SERVICES)
+bootstrap-operators:
+	@echo "🚀 Bootstrapping Helm-based operators..."
+	./scripts/bootstrap/install_helm_charts.sh
 
-start-streaming:
-	docker-compose start $(STREAMING_SERVICES)
-
-up-lakehouse:
-	@echo "Starting Lakehouse services..."
-	docker-compose up -d $(LAKEHOUSE_SERVICES)
-
-start-lakehouse:
-	docker-compose start $(LAKEHOUSE_SERVICES)
-
-up-all:
-	@echo "Starting all services..."
-	docker-compose up -d
-
-start-all:
-	docker-compose start
-
-down:
-	@echo "Stopping and removing all containers..."
-	docker-compose down
-
-stop:
-	docker-compose stop
-
-restart:
-	docker-compose restart
-
-init-kafka-topics:
-	@echo "Creating Kafka topics..."
-	@if ! docker ps | grep -q $(KAFKA_CONTAINER); then \
-		echo "Error: $(KAFKA_CONTAINER) container is not running!"; exit 1; \
-	fi
-	@docker exec $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
-		--create --if-not-exists \
-		--topic buswaypoint_json \
-		--bootstrap-server $(BOOTSTRAP_SERVER) \
-		--partitions 2 \
-		--replication-factor 1
-	@echo "Kafka topics created."
-
-list-kafka-topics:
-	@docker exec $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
-		--list --bootstrap-server $(BOOTSTRAP_SERVER)
-
-read-kafka-topic:
-	@if [ -z "$(TOPIC)" ]; then \
-		echo "Error: specify topic using TOPIC=name"; exit 1; \
-	fi
-	@$(PYTHON) scripts/read_topic.py $(TOPIC)
+verify-layout:
+	@test -f k8s/base/kustomization.yaml
+	@test -f terraform/envs/dev/main.tf
+	@test -f helm-values/airflow/dev.yaml
+	@test -f helm-values/trino/dev.yaml
+	@echo "Layout looks good."
 
 install:
 	pip install -r requirements.txt

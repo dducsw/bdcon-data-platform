@@ -1,0 +1,131 @@
+# ====================================================================
+# Kafka Exporter — Exports Kafka metrics to Prometheus
+# FIX E3: Using Strimzi bootstrap service instead of old service names
+# FIX W2: Added name: metrics to port definitions
+# ====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  namespace: data-platform
+  labels:
+    app: kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: kafka-exporter
+    spec:
+      nodeSelector:
+        role: compute
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z data-platform-kafka-kafka-bootstrap.data-platform.svc 9092; do
+                echo "Waiting for Kafka..."; sleep 5;
+              done
+      containers:
+        - name: kafka-exporter
+          image: danielqsj/kafka-exporter:latest
+          args:
+            - '--kafka.server=data-platform-kafka-kafka-bootstrap.data-platform.svc:9092'
+          ports:
+            - name: metrics
+              containerPort: 9308
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  namespace: data-platform
+  labels:
+    app: kafka-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka-exporter
+  ports:
+    - name: metrics
+      port: 9308
+      targetPort: 9308
+---
+# ====================================================================
+# Redis Exporter — Exports Redis metrics to Prometheus
+# FIX W2: Added name: metrics to port definitions
+# ====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: data-platform
+  labels:
+    app: redis-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+    spec:
+      nodeSelector:
+        role: compute
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: redis-exporter
+          image: oliver006/redis_exporter:latest
+          env:
+            - name: REDIS_ADDR
+              value: "redis:6379"
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: data-platform
+  labels:
+    app: redis-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: redis-exporter
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: 9121

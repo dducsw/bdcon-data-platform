@@ -9,7 +9,7 @@ kind: Kustomization
 namespace: data-platform
 
 resources:
-  - ../../   # Points to k8s/ base
+  - ../../base
 
 # For Helm-managed resources (Trino, Airflow, etc.),
 # you should use "helm upgrade --set" rather than Kustomize patches

@@ -24,8 +24,15 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/terraform.tfstate.*.backup
 terraform/terraform.tfvars
+terraform/errored.tfstate
+terraform/envs/*/.terraform/
+terraform/envs/*/*.tfvars
 # Keep the example file: terraform/terraform.tfvars.example is safe to commit
-
+.env
+manifests-output.yaml
+scripts/terraform.tfstate
+k8s/base/platform-services/spark/spark/build/logs/
+k8s/spark/build/logs/
 # ---------------------------------------------------------------
 # Kubernetes Plain Secrets
 # NOTE: ExternalSecret manifests (k8s/secrets/*.yaml) are safe to

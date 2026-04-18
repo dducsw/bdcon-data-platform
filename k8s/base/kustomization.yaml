@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data-platform
+
+resources:
+  - namespace/namespace.yaml
+  - security/secret-store.yaml
+  - secrets/minio-secret.yaml
+  - secrets/postgres-secret.yaml
+  - secrets/spark-minio-secret.yaml
+  - secrets/superset-secret.yaml
+  - security/resource-quota.yaml
+  - security/network-policy.yaml
+  - storage/postgres-pvc.yaml
+  - storage/misc-pvc.yaml
+  - storage/storage-classes.yaml
+  - data-services/postgres/init-configmap.yaml
+  - data-services/postgres/statefulset.yaml
+  - data-services/postgres/service.yaml
+  - data-services/minio/statefulset.yaml
+  - data-services/minio/service.yaml
+  - data-services/minio/service-headless.yaml
+  - data-services/minio/job-bucket-setup.yaml
+  - data-services/gravitino/configmap.yaml
+  - data-services/gravitino/deployment.yaml
+  - data-services/gravitino/service.yaml
+  - data-services/hive-metastore/configmap.yaml
+  - data-services/hive-metastore/statefulset.yaml
+  - data-services/hive-metastore/service.yaml
+  - platform-services/spark/configmap.yaml
+  - platform-services/spark/spark-rbac.yaml
+  - data-services/kafka/kafka-cluster.yaml
+  - data-services/kafka/kafka-topic.yaml
+  - data-services/redis/statefulset.yaml
+  - observability/pdb.yaml
+  - observability/monitoring/service-monitors.yaml
+  - observability/monitoring/grafana-exporters.yaml
+  - platform-services/superset/init-configmap.yaml
+  - platform-services/superset/deployment.yaml
+  - platform-services/ingress/ingress.yaml

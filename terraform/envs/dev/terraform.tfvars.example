@@ -1,0 +1,10 @@
+# ====================================================================
+# terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is git-ignored and should NEVER be committed.
+# ====================================================================
+
+project_id   = "<YOUR_GCP_PROJECT_ID>"
+region       = "asia-east1"
+zone         = "asia-east1-a"
+cluster_name = "data-platform-cluster"
