@@ -68,10 +68,10 @@ resource "google_container_node_pool" "infra_pool" {
 
   autoscaling {
     min_node_count = 0 
-    max_node_count = 1
+    max_node_count = 0
   }
 
-  initial_node_count = 1
+  initial_node_count = 0
 
   node_config {
     machine_type = "n2-standard-8"
@@ -119,10 +119,10 @@ resource "google_container_node_pool" "compute_pool" {
 
   autoscaling {
     min_node_count = 0
-    max_node_count = 1
+    max_node_count = 0
   }
 
-  initial_node_count = 1
+  initial_node_count = 0
 
   node_config {
     machine_type = "e2-highmem-4"
@@ -168,10 +168,10 @@ resource "google_container_node_pool" "query_pool" {
 
   autoscaling {
     min_node_count = 0
-    max_node_count = 1
+    max_node_count = 0
   }
 
-  initial_node_count = 1
+  initial_node_count = 0
 
   node_config {
     machine_type = "e2-highmem-4"

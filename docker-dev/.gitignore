@@ -1,0 +1,16 @@
+infrastructure/minio/volumes
+infrastructure/postgres/volumes
+infrastructure/spark/logs
+.venv
+
+data/HPCLAB/part1
+data/HPCLAB/part2
+data/ufms
+
+notebooks/.ipynb_checkpoints/
+notebooks/__pycache__/
+notebooks/metastore_db/
+notebooks/derby.log
+notebooks
+producer_checkpoint.json
+infrastructure/gravitino/
