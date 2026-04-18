@@ -192,6 +192,36 @@ spec:
         - port: 9308   # Kafka exporter
         - port: 9121   # Redis exporter
 ---
+# --- Allow all pods → Kubernetes API Server (control plane) ---
+# GKE master CIDR: 172.16.0.0/28 (từ terraform private_cluster_config)
+# Kubernetes service IP: 10.30.0.1 (ClusterIP của kubernetes svc)
+# Flag: phải dùng ipBlock với CIDR rộng hơn vì IP thực tế của master
+# nằm trong 172.16.0.0/28 nhưng accessible qua service IP 10.30.0.1
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-apiserver-egress
+  namespace: data-platform
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Kubernetes API server service IP (ClusterIP: 10.30.0.1)
+    - to:
+        - ipBlock:
+            cidr: 10.30.0.0/24   # Covers the kubernetes.default service IP
+      ports:
+        - port: 443
+          protocol: TCP
+    # GKE master nodes CIDR (từ terraform: 172.16.0.0/28)
+    - to:
+        - ipBlock:
+            cidr: 172.16.0.0/28
+      ports:
+        - port: 443
+          protocol: TCP
+---
 # --- Allow all pods outbound to external (internet) for image pulls etc. ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -64,14 +64,14 @@ helm upgrade --install airflow apache-airflow/airflow \
 
 echo "✅ Apache Airflow installed."
 
-echo "📦 Installing Community Spark Operator..."
-helm repo add spark-operator https://kubeflow.github.io/spark-operator
+echo "📦 Installing Apache Spark Kubernetes Operator..."
+helm repo add spark https://apache.github.io/spark-kubernetes-operator
 helm repo update
-helm upgrade --install spark-operator spark-operator/spark-operator \
-  --namespace "$NAMESPACE" --create-namespace \
-  --set webhook.enable=true --wait
+helm upgrade --install spark-kubernetes-operator spark/spark-kubernetes-operator \
+  --namespace spark-operator --create-namespace \
+  --wait
 
-echo "✅ Community Spark Operator installed."
+echo "✅ Apache Spark Kubernetes Operator installed."
 
 
 echo "📦 Installing Trino Cluster (Official Helm Chart)..."

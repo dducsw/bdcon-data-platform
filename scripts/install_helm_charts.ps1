@@ -37,12 +37,12 @@ helm upgrade --install airflow apache-airflow/airflow --namespace $NAMESPACE --c
 
 Write-Host "✅ Apache Airflow installed." -ForegroundColor Green
 
-Write-Host "📦 Installing Community Spark Operator..." -ForegroundColor Cyan
-helm repo add spark-operator https://kubeflow.github.io/spark-operator
+Write-Host "📦 Installing Apache Spark Kubernetes Operator..." -ForegroundColor Cyan
+helm repo add spark https://apache.github.io/spark-kubernetes-operator
 helm repo update
-helm upgrade --install spark-operator spark-operator/spark-operator --namespace $NAMESPACE --create-namespace --set webhook.enable=true --wait
+helm upgrade --install spark-kubernetes-operator spark/spark-kubernetes-operator --namespace $NAMESPACE --create-namespace --wait
 
-Write-Host "✅ Community Spark Operator installed." -ForegroundColor Green
+Write-Host "✅ Apache Spark Kubernetes Operator installed." -ForegroundColor Green
 
 
 Write-Host "📦 Installing Trino Cluster (Official Helm Chart)..." -ForegroundColor Cyan

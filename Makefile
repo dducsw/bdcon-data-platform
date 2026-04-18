@@ -126,6 +126,83 @@ tf-fmt:
 
 
 # ================================================================
+# Spark Operator (Kubeflow spark-operator v2.5.0)
+# ================================================================
+SPARK_REGISTRY  ?= gcr.io/k8s-data-platform-1879
+SPARK_IMAGE     ?= $(SPARK_REGISTRY)/spark:3.5.5
+SPARK_APP       ?= k8s/spark/spark-pi-example.yaml   # Override: make spark-submit SPARK_APP=path/to/app.yaml
+
+spark-operator-install:
+	@echo "🚀 Installing Spark Kubernetes Operator..."
+	helm repo add spark-operator https://kubeflow.github.io/spark-operator 2>/dev/null || true
+	helm repo update spark-operator
+	helm install spark-operator spark-operator/spark-operator \
+		--namespace $(NAMESPACE) \
+		--values k8s/spark/setup/spark-operator-values.yaml
+	@echo "✅ spark-operator installed. Check: make spark-operator-status"
+
+spark-operator-upgrade:
+	@echo "⬆️  Upgrading Spark Kubernetes Operator..."
+	helm upgrade spark-operator spark-operator/spark-operator \
+		--namespace $(NAMESPACE) \
+		--values k8s/spark/setup/spark-operator-values.yaml
+	@echo "✅ spark-operator upgraded."
+
+spark-operator-status:
+	@echo "📊 Spark Operator status:"
+	@kubectl get pods -n $(NAMESPACE) -l app.kubernetes.io/name=spark-operator
+	@echo ""
+	@echo "📋 SparkApplications:"
+	@kubectl get sparkapplication -n $(NAMESPACE) 2>/dev/null || echo "  (no SparkApplications found)"
+
+spark-operator-logs:
+	@echo "📋 Spark Operator controller logs:"
+	kubectl logs -n $(NAMESPACE) -l app.kubernetes.io/name=spark-operator -f --tail=100
+
+spark-build-image:
+	@echo "🔨 Building Spark Docker image..."
+	cd k8s/spark && docker build -t $(SPARK_IMAGE) \
+		--build-arg PYTHON_VERSION=3.12.3 \
+		--build-arg SPARK_VERSION=3.5.5 \
+		--build-arg SPARK_SCALA_VERSION=3.5_2.12 \
+		--build-arg ICEBERG_VERSION=1.10.0 \
+		--build-arg POSTGRESQL_JAR_VERSION=42.7.5 \
+		--build-arg HADOOP_AWS_JAR_VERSION=3.3.1 \
+		--build-arg AWS_JAVA_SDK_BUNDLE_JAR_VERSION=1.12.367 \
+		--build-arg KAFKA_VERSION=3.9.0 \
+		--build-arg SPARK_KAFKA_VERSION=3.5.5 \
+		-f build/Dockerfile ../../
+	@echo "✅ Image built: $(SPARK_IMAGE)"
+
+spark-push-image:
+	@echo "📤 Pushing Spark image to GCR..."
+	gcloud auth configure-docker --quiet
+	docker push $(SPARK_IMAGE)
+	@echo "✅ Image pushed: $(SPARK_IMAGE)"
+
+spark-submit:
+	@echo "🚀 Submitting SparkApplication: $(SPARK_APP)"
+	kubectl apply -f $(SPARK_APP) -n $(NAMESPACE)
+	@echo "👀 Watch status: make spark-watch"
+
+spark-delete:
+	@echo "🗑️  Deleting SparkApplication: $(SPARK_APP)"
+	kubectl delete -f $(SPARK_APP) -n $(NAMESPACE) --ignore-not-found
+
+spark-watch:
+	@echo "👀 Watching SparkApplications (Ctrl+C to exit)..."
+	kubectl get sparkapplication -n $(NAMESPACE) -w
+
+spark-logs:
+	@echo "📋 Spark driver logs:"
+	kubectl logs -n $(NAMESPACE) -l spark-role=driver -f --tail=100
+
+spark-jobs:
+	@echo "📋 All SparkApplications:"
+	kubectl get sparkapplication -n $(NAMESPACE) -o wide
+
+
+# ================================================================
 # Secrets Bootstrap (run once after cluster is created)
 # ================================================================
 

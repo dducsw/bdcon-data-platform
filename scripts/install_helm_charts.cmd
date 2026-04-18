@@ -35,11 +35,11 @@ kubectl delete pvc airflow-logs -n data-platform --ignore-not-found
 helm upgrade --install airflow apache-airflow/airflow --namespace data-platform --create-namespace -f ../k8s/airflow/airflow-values.yaml --wait --timeout 10m
 echo ✅ Apache Airflow installed.
 
-echo 📦 Installing Community Spark Operator...
-helm repo add spark-operator https://kubeflow.github.io/spark-operator
+echo 📦 Installing Apache Spark Kubernetes Operator...
+helm repo add kubeflow https://kubeflow.github.io/spark-operator
 helm repo update
-helm upgrade --install spark-operator spark-operator/spark-operator --namespace data-platform --create-namespace --set webhook.enable=true --wait
-echo ✅ Community Spark Operator installed.
+helm upgrade spark-operator kubeflow-spark/spark-operator  --namespace data-platform   --values k8s\spark\setup\spark-operator-values.yaml --wait --timeout 180s
+echo ✅ Apache Spark Kubernetes Operator installed.
 
 
 echo 📦 Installing Trino Cluster (Official Helm Chart)...

@@ -1,0 +1,97 @@
+# ====================================================================
+# Kubeflow Spark Operator — Helm Values
+# Chart: spark-operator/spark-operator v2.5.0
+# Docs: https://github.com/kubeflow/spark-operator
+#
+# Key fixes vs previous install:
+#   - spark.jobNamespaces: watch data-platform (đúng field name của chart)
+#   - webhook.enable: false (không cần cert-manager)
+#   - controller nodeSelector: role=infra (chạy trên infra pool)
+#   - Tăng probe initialDelaySeconds để tránh kill sớm
+#   - Resources hợp lý cho GKE small cluster
+# ====================================================================
+
+# ────────────────────────────────────────────────────────────────────
+# Spark job namespaces — đây là field ĐÚNG của chart kubeflow/spark-operator
+# jobNamespaces: [] = watch ALL namespaces
+# Liệt kê cụ thể để giới hạn phạm vi (least privilege)
+# ────────────────────────────────────────────────────────────────────
+spark:
+  jobNamespaces:
+    - data-platform
+
+# ────────────────────────────────────────────────────────────────────
+# Controller Configuration
+# ────────────────────────────────────────────────────────────────────
+controller:
+  replicas: 1
+
+  # Gắn controller vào infra pool (luôn có node)
+  nodeSelector:
+    role: infra
+
+  # Tolerate GKE Spot nodes trên infra pool
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+  # Resource limits phù hợp (controller spawn JVM khi submit job)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Probe — tăng initialDelaySeconds để controller kịp start
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    failureThreshold: 5
+    timeoutSeconds: 5
+
+  readinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    failureThreshold: 5
+    timeoutSeconds: 5
+
+  # Leader election (1 replica = không cần nhưng giữ để best practice)
+  leaderElection:
+    enable: true
+    leaseDuration: 15s
+    renewDeadline: 10s
+    retryPeriod: 2s
+
+  # Workqueue tuning
+  workqueueRateLimiter:
+    bucketQPS: 50
+    bucketSize: 500
+    maxDelay:
+      enable: true
+      duration: 6h
+
+  # Spark UI service (tạo ClusterIP service cho Spark Web UI)
+  uiService:
+    enable: true
+
+  # Không dùng batch scheduler
+  batchScheduler:
+    enable: false
+
+  # Feature gates
+  featureGates:
+    - name: PartialRestart
+      enabled: false
+    - name: LoadSparkDefaults
+      enabled: false
+
+# ────────────────────────────────────────────────────────────────────
+# Webhook — TẮT vì không có cert-manager trên cluster
+# Bật khi cần validation/mutation webhook (production hardening)
+# ────────────────────────────────────────────────────────────────────
+webhook:
+  enable: false
