@@ -72,6 +72,26 @@ def main():
         read_df = spark.sql(f"SELECT * FROM {table_name} WHERE Age > 25")
         read_df.show()
 
+        # --- TEST 4: ICEBERG TABLE ---
+        print("\n--- Test 4: Ghi và Đọc bảng Iceberg ---")
+        iceberg_table = "iceberg.test_db.spark_iceberg_test"
+        
+        print(f"Đang khởi tạo bảng Iceberg: {iceberg_table} ...")
+        # Iceberg hỗ trợ API writeTo để tạo / đè bảng
+        df.writeTo(iceberg_table).tableProperty("format-version", "2").createOrReplace()
+        
+        print("Dữ liệu đọc ra từ Iceberg:")
+        spark.sql(f"SELECT * FROM {iceberg_table}").show()
+
+        # --- TEST 5: UPDATE ICEBERG TABLE (ACID TRANSACTIONS) ---
+        print("\n--- Test 5: UPDATE dữ liệu trên Iceberg (ACID) ---")
+        print("Cộng thêm 1 tuổi cho Alice...")
+        spark.sql(f"UPDATE {iceberg_table} SET Age = Age + 1 WHERE Name = 'Alice'")
+        
+        # Đọc lại sau khi sửa
+        print("Dữ liệu sau khi cập nhật:")
+        spark.sql(f"SELECT * FROM {iceberg_table}").show()
+
         print("🎉 TẤT CẢ TEST ĐÃ PASS!")
 
     except Exception as e:

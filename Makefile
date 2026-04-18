@@ -1,6 +1,8 @@
 .PHONY: help \
 	k8s-deploy k8s-dev k8s-diff k8s-status k8s-pods k8s-logs k8s-start k8s-stop \
 	tf-init tf-validate tf-plan tf-apply tf-destroy tf-fmt \
+	spark-operator-install spark-operator-upgrade spark-operator-status spark-operator-logs \
+	spark-build-image spark-push-image spark-upload-script spark-submit spark-delete spark-watch spark-logs spark-jobs \
 	secrets-create bootstrap-operators verify-layout
 
 
@@ -119,9 +121,12 @@ tf-fmt:
 # ================================================================
 # Spark Operator (Kubeflow spark-operator v2.5.0)
 # ================================================================
-SPARK_REGISTRY  ?= gcr.io/k8s-data-platform-1879
-SPARK_IMAGE     ?= $(SPARK_REGISTRY)/spark:3.5.5
-SPARK_APP       ?= k8s/base/platform-services/spark/spark-pi-example.yaml   # Override: make spark-submit SPARK_APP=path/to/app.yaml
+SPARK_REGISTRY   ?= gcr.io/k8s-data-platform-1879
+SPARK_IMAGE      ?= $(SPARK_REGISTRY)/spark:3.5.5
+SPARK_APP        ?= k8s/base/platform-services/spark/spark-pi-example.yaml   # Override: make spark-submit SPARK_APP=path/to/app.yaml
+SPARK_SCRIPT     ?= pipelines/spark_hive_minio_test.py
+MINIO_BUCKET     ?= datalake
+MINIO_SCRIPT_DIR ?= scripts
 
 spark-operator-install:
 	@echo "🚀 Installing Spark Kubernetes Operator..."
@@ -170,6 +175,15 @@ spark-push-image:
 	gcloud auth configure-docker --quiet
 	docker push $(SPARK_IMAGE)
 	@echo "✅ Image pushed: $(SPARK_IMAGE)"
+
+spark-upload-script:
+	@echo "📤 Uploading script $(notdir $(SPARK_SCRIPT)) to MinIO (s3a://$(MINIO_BUCKET)/$(MINIO_SCRIPT_DIR)/)..."
+ifeq ($(OS),Windows_NT)
+	cmd.exe /c "type $(subst /,\,$(SPARK_SCRIPT)) | kubectl exec -i -n $(NAMESPACE) minio-0 -- mc pipe local/$(MINIO_BUCKET)/$(MINIO_SCRIPT_DIR)/$(notdir $(SPARK_SCRIPT))"
+else
+	cat $(SPARK_SCRIPT) | kubectl exec -i -n $(NAMESPACE) minio-0 -- mc pipe local/$(MINIO_BUCKET)/$(MINIO_SCRIPT_DIR)/$(notdir $(SPARK_SCRIPT))
+endif
+	@echo "✅ Upload complete!"
 
 spark-submit:
 	@echo "🚀 Submitting SparkApplication: $(SPARK_APP)"
