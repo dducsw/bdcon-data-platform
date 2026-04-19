@@ -1,4 +1,40 @@
 services:
+  # REST Catalog
+  gravitino:
+    build:
+      context: .
+      dockerfile: ./infrastructure/gravitino/Dockerfile
+      args:
+        - GRAVITINO_IMAGE_TAG=${GRAVITINO_IMAGE_TAG}
+        - HADOOP_AWS_JAR_VERSION=${HADOOP_AWS_JAR_VERSION}
+        - AWS_JAVA_SDK_BUNDLE_JAR_VERSION=${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}
+        - AWS_SDK_V2_VERSION=${AWS_SDK_V2_VERSION}
+        - ICEBERG_VERSION=${ICEBERG_VERSION}
+    container_name: gravitino
+    ports:
+      - "8090:8090"
+      - "9001:9001"
+    env_file:
+      - .env
+    volumes:
+      - ./infrastructure/common:/tmp/common
+      - ./infrastructure/gravitino/conf:/tmp/conf
+      - ./infrastructure/gravitino/healthcheck:/tmp/healthcheck
+      - gravitino_data:/root/gravitino/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/version"]
+      start_period: 30s
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - docker-dev-platform
+      
   # Metastore DB: PostgreSQL
   postgres:
     platform: linux/amd64
@@ -11,44 +47,17 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: hive_metastore_db
+      POSTGRES_DB: catalog_metastore_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d hive_metastore_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d catalog_metastore_db"]
       interval: 5s
       timeout: 60s
       retries: 5
       start_period: 20s
     networks:
-      - local-data-lakehouse
-
-  hive-metastore:
-    platform: linux/amd64
-    build:
-      context: ./infrastructure/hive-metastore
-      dockerfile: Dockerfile
-      args:
-        - HADOOP_VERSION=${HADOOP_VERSION}
-        - HIVE_VERSION=${HIVE_VERSION}
-        - POSTGRESQL_JAR_VERSION=${POSTGRESQL_JAR_VERSION}
-        - AWS_JAVA_SDK_BUNDLE_JAR_VERSION=${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}
-    container_name: hive-metastore
-    ports:
-      - "9083:9083"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9083"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-    networks:
-      - local-data-lakehouse
+      - docker-dev-platform
 
   # Distributed Compute Engine: Apache Spark
   spark-master:
@@ -86,7 +95,7 @@ services:
       - ./scripts:/opt/spark/scripts
       - ./data:/opt/spark/apps/data
     depends_on:
-      hive-metastore:
+      gravitino:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -98,7 +107,7 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
 
   spark-worker-1:
     platform: linux/amd64
@@ -132,7 +141,7 @@ services:
         condition: service_healthy
     entrypoint: ['./init/init.sh', 'worker']
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
 
   # Object Storage: MinIO
   minio:
@@ -157,7 +166,7 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
   
   minio-client:
     platform: linux/amd64
@@ -176,7 +185,7 @@ services:
       /usr/bin/mc anonymous set public myminio/iceberg/lakehouse;
       "
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
     
   trino:
     platform: linux/amd64
@@ -189,18 +198,18 @@ services:
     volumes:
       - ./infrastructure/trino/etc/catalog:/etc/trino/catalog
     depends_on:
-      hive-metastore:
+      gravitino:
         condition: service_healthy
       minio:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/v1/info" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8088/v1/info" ]
       interval: 5s
       timeout: 60s
       retries: 5
       start_period: 20s
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
 
   # Message Queue: Apache Kafka (Single Node KRaft)
   kafka:
@@ -222,12 +231,13 @@ services:
     volumes:
       - kafka_data:/tmp/kafka-logs
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
       interval: 10s
       timeout: 5s
       retries: 5
+
 
   # Data Visualization and Exploration: Apache Superset
   superset:
@@ -245,13 +255,15 @@ services:
       - ./infrastructure/superset/init.sh:/app/init.sh
     command: ["/bin/bash", "/app/init.sh"]
     networks:
-      - local-data-lakehouse
+      - docker-dev-platform
 
 networks:
-  local-data-lakehouse:
+  docker-dev-platform:
 
 volumes:
+  gravitino_data:
   postgres_data:
   minio_data:
   kafka_data:
+  redis_data:
   superset_data:

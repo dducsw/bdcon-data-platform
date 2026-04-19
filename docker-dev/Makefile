@@ -7,7 +7,7 @@ PYTHON ?= python3
 
 # Service Groups
 STREAMING_SERVICES = kafka spark-master spark-worker-1
-LAKEHOUSE_SERVICES = postgres minio minio-client hive-metastore trino superset spark-master spark-worker-1
+LAKEHOUSE_SERVICES = gravitino postgres minio minio-client trino superset spark-master spark-worker-1
 
 help:
 	@echo "Available commands:"

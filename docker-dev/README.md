@@ -1,80 +1,147 @@
-# Docker Dev Lakehouse
+#  Modern Data Lakehouse with Apache Iceberg
 
-Thu muc `docker-dev/` la local development stack dung de mo phong cac thanh phan du lieu cot loi truoc khi dua workload len Kubernetes. Muc tieu la giu cho phan cau hinh o day gan voi `k8s/` nhat co the, tap trung vao 4 khoi chinh:
+A production-grade, containerized Data Lakehouse environment featuring Apache Iceberg, Spark Cluster, Kafka, Trino, and Gravitino REST Catalog. Built with modern data engineering best practices and optimized for local development and testing.
 
-- Spark de xu ly batch va streaming.
-- Kafka de ingest su kien va pipeline real-time.
-- Hive Metastore de lam catalog metadata cho Iceberg.
-- Trino de query interactive tren cung mot lakehouse.
-
-Gravitino da duoc loai khoi local stack nay de `docker-dev` di sat hon huong trien khai tren cluster.
-
-## Architecture
+## 📐 Architecture
 
 ![Data Lakehouse Architecture](assets/architecture.png)
 
-Luong chinh trong `docker-dev`:
+The architecture follows a layered approach:
+- **Ingestion Layer**: Apache Kafka for real-time data streaming
+- **Compute Layer**: Apache Spark cluster (1 Master + 2 Workers) for distributed processing
+- **Query Layer**: Trino for fast, interactive SQL analytics
+- **Catalog Layer**: Apache Gravitino as the Iceberg REST catalog service
+- **Table Format**: Apache Iceberg for ACID transactions and time travel
+- **File Format**: Apache Parquet for efficient columnar storage
+- **Storage Layer**: MinIO (S3-compatible) for scalable object storage
+- **Observability**: Grafana and Prometheus for metrics and monitoring
 
-1. Kafka nhan event dau vao.
-2. Spark doc/ghi du lieu va materialize bang Iceberg.
-3. Hive Metastore quan ly metadata cho Iceberg.
-4. Trino query cung data lake tren MinIO.
-5. Postgres luu metadata backend cho Hive Metastore.
-6. Superset giu vai tro kham pha va xem du lieu o local.
+## ✨ Key Features
 
-Stack local nay duoc giu gon de phuc vu phat trien va test pipeline:
+- **🔄 ACID Transactions**: Full ACID support via Apache Iceberg with snapshot isolation
+- **⚡ Distributed Processing**: Spark cluster with 1 master and 2 worker nodes
+- **🎯 Multi-Engine Access**: Query data using Spark SQL, Trino, or PySpark notebooks
+- **📊 Real-time Ingestion**: Kafka cluster (3-node KRaft) for streaming data pipelines
+- **🔍 Unified Catalog**: Gravitino REST catalog for centralized metadata management
+- **📈 Built-in Monitoring**: Prometheus metrics with Grafana dashboards
+- **🐳 Fully Dockerized**: One-command deployment with Docker Compose
+- **🔐 S3-Compatible Storage**: MinIO for cost-effective data lake storage
 
-- Spark gom 1 master va 1 worker.
-- Khong bao gom Redis, Prometheus, Grafana hay cac exporter monitoring.
-- Tap trung vao data path chinh: Kafka -> Spark -> Iceberg/MinIO -> Trino/Superset.
+## 🛠 Technology Stack
 
-## Naming convention
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| **Apache Spark** | 3.5.5 | Distributed data processing engine |
+| **Apache Iceberg** | 1.10.0 | Open table format for huge analytic datasets |
+| **Apache Gravitino** | 1.1.0 | REST catalog service for lakehouse metadata |
+| **Apache Kafka** | 3.9.0 | Distributed event streaming platform |
+| **Trino** | 471 | Fast distributed SQL query engine |
+| **MinIO** | 2025-09-07 | S3-compatible object storage |
+| **PostgreSQL** | 16 | Catalog backend database |
+| **Grafana** | 12.1.0 | Metrics visualization |
+| **Prometheus** | 3.5.1 | Metrics collection and alerting |
+| **Python** | 3.12.3 | Runtime for PySpark applications |
+| **Java** | 17 | Runtime for JVM-based services |
 
-De viec migrate code tu Docker sang cluster don gian hon, `docker-dev` dang co mot bo ten co dinh cho Hive Metastore flow:
+## 🚀 Quick Start
 
-- Bucket: `iceberg`
-- Warehouse: `s3a://iceberg/lakehouse`
-- Catalog: `hive`
-- Schema mac dinh cho vi du: `schema_iceberg`
-- Hive Metastore URI: `thrift://hive-metastore:9083`
+### Prerequisites
+- Docker Engine 20.10+ with Docker Compose
+- At least 8GB RAM available for containers
+- Ports available: 8080, 8090, 8888, 9091, 3000, 9000, 5432
 
-Neu viet them pipeline moi trong `docker-dev`, nen giu dung naming nay de khi dua sang k8s chi can doi endpoint hoac secret, khong phai doi ten bang/schema/catalog.
-
-## Thu muc quan trong
-
-- `docker-compose.yml`: orchestration local stack.
-- `infrastructure/spark`: Dockerfile, init script, Spark config.
-- `infrastructure/hive-metastore`: image va config cua Hive Metastore.
-- `infrastructure/trino`: catalog Trino tro vao Hive Metastore.
-- `pipelines/`: code xu ly mau de chay local roi dua sang k8s workloads.
-- `setup/`: script khoi tao schema/catalog ban dau.
-
-## Cach dung nhanh
+### 1. Clone and Start
 
 ```bash
-cd docker-dev
+# Clone the repository
+git clone https://github.com/dducsw/mp252.git
+cd mp252
+
+# Start all services
 docker compose up --detach --build
 ```
 
-Khoi tao schema Iceberg:
+2. **Initialize Schema**:
+   ```shell
+   docker exec -it spark-master spark-sql -f /opt/spark/apps/setup/create_schema.sql
+   ```
 
-```bash
-docker exec -it spark-master spark-sql -f /opt/spark/apps/setup/create_schema.sql
+3. **Run a Pipeline**:
+   ```shell
+   docker exec -it spark-master python /opt/spark/apps/pipelines/create_example_table.py
+   ```
+
+4. **Using Notebooks**:
+   - Access **JupyterLab** at `http://localhost:8888`.
+   - Your notebooks are saved in the `notebooks/` directory.
+   - To start a PySpark session in a notebook:
+     ```python
+     from pyspark.sql import SparkSession
+     spark = SparkSession.builder.getOrCreate()
+     ```
+
+## 🔍 Querying Data
+You can query tables using either Spark or Trino:
+
+**Spark SQL:**
+```shell
+docker exec -it spark-master spark-sql
+SELECT * FROM catalog_iceberg.schema_iceberg.table_iceberg;
 ```
 
-Chay pipeline mau:
-
-```bash
-docker exec -it spark-master python /opt/spark/apps/pipelines/example/create_example_table.py
+**Trino CLI:**
+```shell
+docker exec -it trino trino --catalog catalog_iceberg --schema schema_iceberg
+SELECT * FROM table_iceberg;
 ```
 
-## Mapping sang Kubernetes
+## 📁 Project Structure
 
-`docker-dev` duoc to chuc de map thang sang `k8s/`:
+```
+Project
+│
+├── 📄 docker-compose.yml              # Main orchestration file for all services
+├── 📄 .env                            # Environment variables and version configurations
+├── 📄 README.md                       # Project documentation
+├── 📄 .gitignore                      # Git ignore patterns
+│
+├── 📁 assets/                         # Documentation assets
+│
+├── 📁 infrastructure/                 # Service-specific configurations
+│   │
+│   ├── 📁 common/                     # Shared initialization scripts
+│   │
+│   ├── 📁 gravitino/                  # Apache Gravitino REST Catalog
+│   │
+│   ├── 📁 spark/                      # Apache Spark Cluster
+│   │
+│   ├── 📁 trino/                      # Trino Query Engine
+│   │
+│   ├── 📁 kafka/                      # Apache Kafka 
+│   │
+│   ├── 📁 minio/                      # MinIO S3-Compatible Storage
+│   │
+│   ├── 📁 postgres/                   # PostgreSQL Metadata Store
+│   │
+│   ├── 📁 grafana/                    # Grafana Monitoring
+│   │
+│   └── 📁 prometheus/                 # Prometheus Metrics Collection
+│
+├── 📁 notebooks/                      # Jupyter Notebooks
+│   └── (Your interactive PySpark notebooks)
+│
+├── 📁 pipelines/                      # Data Processing Pipelines
+│   └── create_example_table.py        # Sample Iceberg table creation
+│
+├── 📁 scripts/                        # Utility Scripts
+│
+└── 📁 setup/                          # Initial Setup Scripts
+    └── create_schema.sql              # Database schema initialization
+```
 
-- Spark local map sang `k8s/base/platform-services/spark/`.
-- Hive Metastore local map sang `k8s/base/data-services/hive-metastore/`.
-- Kafka local map sang `k8s/base/data-services/kafka/`.
-- Trino local map sang `helm-values/trino/` va cac tai lieu deploy lien quan.
 
-Neu can them service cho local, uu tien giu ten bien, endpoint va thu muc config tuong dong voi `k8s/` de luc tach image/manifests sang cluster se it phai doi lai nhat.
+**⭐ Star this repository if you find it helpful!**
+
+*Enhanced and maintained by [dducsw](https://github.com/dducsw). Based on the original project by [marcellinus-witarsah](https://github.com/marcellinus-witarsah/local-data-lakehouse-iceberg).*
+
+

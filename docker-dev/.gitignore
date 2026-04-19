@@ -1,5 +1,6 @@
 infrastructure/minio/volumes
 infrastructure/postgres/volumes
+infrastructure/gravitino/volumes
 infrastructure/spark/logs
 .venv
 
@@ -13,4 +14,3 @@ notebooks/metastore_db/
 notebooks/derby.log
 notebooks
 producer_checkpoint.json
-infrastructure/gravitino/

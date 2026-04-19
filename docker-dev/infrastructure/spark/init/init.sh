@@ -16,6 +16,11 @@ cp /tmp/conf/spark-defaults.conf ${SPARK_HOME}/conf/spark-defaults.conf
 cp /tmp/conf/core-site.xml ${SPARK_HOME}/conf/core-site.xml
 cp /tmp/conf/metrics.properties ${SPARK_HOME}/conf/metrics.properties
 
+# =======================================================================
+# Create metalake and catalog in Gravitino
+# =======================================================================
+sh /tmp/common/init_metalake_catalog.sh
+
 # Run spark based on the workload type
 SPARK_WORKLOAD=$1
 echo "SPARK_WORKLOAD: $SPARK_WORKLOAD"

@@ -7,11 +7,6 @@ from pyspark.sql.types import (
 
 from pyspark.sql.functions import current_timestamp, from_unixtime, to_timestamp, to_date, col, from_json
 
-CATALOG_NAME = "hive"
-SCHEMA_NAME = "schema_iceberg"
-TABLE_NAME = "bus_way_points"
-CHECKPOINT_LOCATION = "s3a://iceberg/checkpoints/schema_iceberg/bus_way_points"
-
 def stream_kafka_to_iceberg(spark: SparkSession, table_name: str) -> None:
     # Define schema for the nested BusWayPoint based on ufms.proto
     bus_way_point_schema = StructType([
@@ -66,14 +61,16 @@ def stream_kafka_to_iceberg(spark: SparkSession, table_name: str) -> None:
         .withColumn("load_at", current_timestamp())
     )
     
-    # Write to the canonical Iceberg catalog so the same table name can be reused on k8s.
+    # Write to Iceberg with partitioning using the native date field
     query = (
         df_with_ts
         .writeStream
-        .format("iceberg")
+        .format("parquet")
         .outputMode("append")
-        .option("checkpointLocation", CHECKPOINT_LOCATION)
-        .toTable(table_name)
+        .option("path", "s3a://iceberg/bus_way_points")
+        .option("checkpointLocation", "s3a://iceberg/checkpoints/bus_way_points")
+        .partitionBy("date")
+        .start()
     )
 
     query.awaitTermination()
@@ -87,6 +84,6 @@ if __name__ == "__main__":
 
     spark.sparkContext.setLogLevel("ERROR")
 
-    table_name = f"{CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME}"
+    table_name = "catalog_iceberg.bus_bronze.bus_way_points"
     
     stream_kafka_to_iceberg(spark, table_name)

@@ -2,10 +2,6 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, LongType, TimestampType
 from datetime import datetime
 
-CATALOG_NAME = "hive"
-SCHEMA_NAME = "schema_iceberg"
-TABLE_NAME = "table_iceberg"
-
 
 def create_table(spark: SparkSession) -> None:
     schema = StructType(
@@ -28,7 +24,7 @@ def create_table(spark: SparkSession) -> None:
         .createDataFrame(data, schema)
         .write.format("iceberg")
         .mode("overwrite")
-        .saveAsTable(f"{CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME}")
+        .saveAsTable("catalog_iceberg.hive.table_iceberg")
     )
 
 if __name__ == "__main__":

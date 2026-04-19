@@ -1,41 +1,38 @@
 #!/bin/bash
-
 # =======================================================================
 # Load common functions
 # =======================================================================
-. "/root/spark/common/common.sh"
+. "/root/gravitino/common/common.sh"
 
 # =======================================================================
 # Prepare target directory for packages
 # =======================================================================
-target_dir="/root/spark"
+target_dir="/root/gravitino"
 if [[ ! -d "${target_dir}/packages" ]]; then
   mkdir -p "${target_dir}/packages"
 fi
 
 # =======================================================================
-# Download Iceberg Spark Runtime JAR and MD5
-# Why?: This is needed for Spark to work with Iceberg tables
+# Download Hadoop Common JAR and MD5
+# Why?: This is needed as a dependency for hadoop-aws (provides AuditSpanSource and other classes)
 # =======================================================================
-ICEBERG_SPARK_RUNTIME_JAR="https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-${SPARK_SCALA_VERSION}/${ICEBERG_VERSION}/iceberg-spark-runtime-${SPARK_SCALA_VERSION}-${ICEBERG_VERSION}.jar"
-ICEBERG_SPARK_RUNTIME_MD5="${ICEBERG_SPARK_RUNTIME_JAR}.md5"
-download_and_verify "${ICEBERG_SPARK_RUNTIME_JAR}" "${ICEBERG_SPARK_RUNTIME_MD5}" ${target_dir}
-
-# =======================================================================
-# Download PostgreSQL JAR and MD5
-# Why?: This is needed for Spark to connect to REST Catalog that uses PostgreSQL as backend
-# =======================================================================
-POSTGRESQL_JAR="https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRESQL_JAR_VERSION}/postgresql-${POSTGRESQL_JAR_VERSION}.jar"
-POSTGRESQL_MD5="${POSTGRESQL_JAR}.md5"
-download_and_verify "${POSTGRESQL_JAR}" "${POSTGRESQL_MD5}" ${target_dir}
+HADOOP_COMMON_JAR="https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-common/${HADOOP_AWS_JAR_VERSION}/hadoop-common-${HADOOP_AWS_JAR_VERSION}.jar"
+echo "Downloading hadoop-common ${HADOOP_AWS_JAR_VERSION}"
+HADOOP_COMMON_MD5="${HADOOP_COMMON_JAR}.md5"
+download_and_verify "${HADOOP_COMMON_JAR}" "${HADOOP_COMMON_MD5}" ${target_dir}
 
 # =======================================================================
 # Download Hadoop AWS JAR and MD5
-# Why?: This is needed for Spark to connect to S3 compatible storage like MinIO
+# Why?: This is needed for Gravitino to connect to S3 compatible storage like MinIO
 # =======================================================================
 HADOOP_AWS_JAR="https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_JAR_VERSION}/hadoop-aws-${HADOOP_AWS_JAR_VERSION}.jar"
+echo "Downloading hadoop-aws ${HADOOP_AWS_JAR_VERSION}"
 HADOOP_AWS_MD5="${HADOOP_AWS_JAR}.md5"
 download_and_verify "${HADOOP_AWS_JAR}" "${HADOOP_AWS_MD5}" ${target_dir}
+
+# Download Spark Protobuf connector
+RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-protobuf_2.12/3.5.5/spark-protobuf_2.12-3.5.5.jar" \
+    -O $SPARK_HOME/jars/spark-protobuf_2.12-3.5.5.jar
 
 # =======================================================================
 # Download AWS Java SDK Bundle JAR and MD5
@@ -47,9 +44,19 @@ download_and_verify "${AWS_JAVA_SDK_BUNDLE_JAR}" "${AWS_JAVA_SDK_BUNDLE_MD5}" ${
 
 # =======================================================================
 # Download Iceberg AWS JAR and MD5
-# Why?: This is needed for S3FileIO support in Iceberg
+# Why?: This is needed for S3FileIO support in Iceberg REST Catalog
 # =======================================================================
 ICEBERG_AWS_JAR="https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws/${ICEBERG_VERSION}/iceberg-aws-${ICEBERG_VERSION}.jar"
 ICEBERG_AWS_MD5="${ICEBERG_AWS_JAR}.md5"
 download_and_verify "${ICEBERG_AWS_JAR}" "${ICEBERG_AWS_MD5}" ${target_dir}
 
+# =======================================================================
+# Download AWS SDK v2 Bundle JAR
+# Why?: Required by Iceberg AWS for S3FileIO with modern AWS SDK
+# =======================================================================
+echo "Downloading AWS SDK v2 Bundle ${AWS_SDK_V2_VERSION}"
+AWS_SDK_V2_BUNDLE_JAR="https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/${AWS_SDK_V2_VERSION}/bundle-${AWS_SDK_V2_VERSION}.jar"
+wget -q "${AWS_SDK_V2_BUNDLE_JAR}" -P "${target_dir}/packages"
+
+AWS_SDK_V2_URL_CLIENT_JAR="https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/${AWS_SDK_V2_VERSION}/url-connection-client-${AWS_SDK_V2_VERSION}.jar"
+wget -q "${AWS_SDK_V2_URL_CLIENT_JAR}" -P "${target_dir}/packages"
