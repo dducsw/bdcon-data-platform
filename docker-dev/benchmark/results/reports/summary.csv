@@ -1,0 +1,3 @@
+engine,total_queries,success_count,failure_count,success_rate,total_runtime_seconds,median_query_time_seconds,avg_throughput_qps,max_peak_memory_bytes,total_spill_bytes,total_cpu_time_millis
+spark,18,18,0,1.0,281.993,15.278,0.064411,51643872,0,62344
+trino,18,18,0,1.0,15.266,0.849,1.265316,21746881,0,6815

@@ -95,6 +95,37 @@ docker exec -it trino trino --catalog catalog_iceberg --schema schema_iceberg
 SELECT * FROM table_iceberg;
 ```
 
+## Benchmarking Spark vs Trino
+
+The repository includes a starter benchmark harness under [benchmark/](D:/Projects/k8s-data-platform/docker-dev/benchmark/README.md) to compare Spark and Trino on the same `TPC-DS SF5` dataset and collect:
+
+- `query_time`
+- `throughput`
+- `peak_memory`
+- `spill_bytes`
+- `cpu_time`
+- `success_fail_rate`
+
+For the local `16 GB` Docker budget, the engines are also capped internally:
+
+- Spark: `driver.memory=1g`, `executor.instances=1`, `executor.cores=2`, `executor.memory=1536m`, `executor.memoryOverhead=512m`
+- Trino: `-Xmx2G`, `query.max-memory-per-node=768MB`, `query.max-memory=768MB`, `query.max-total-memory=1536MB`
+
+Run sequence:
+
+```shell
+make benchmark-prepare
+make benchmark-spark
+make benchmark-trino
+make benchmark-report
+```
+
+Or:
+
+```shell
+make benchmark-all
+```
+
 ## 📁 Project Structure
 
 ```

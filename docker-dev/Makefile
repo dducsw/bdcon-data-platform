@@ -1,4 +1,4 @@
-.PHONY: init-kafka-topics list-kafka-topics read-kafka-topic help up-streaming up-lakehouse up-all down stop restart install
+.PHONY: init-kafka-topics list-kafka-topics read-kafka-topic help up-streaming up-lakehouse up-all down stop restart install benchmark-prepare benchmark-spark benchmark-trino benchmark-report benchmark-all
 
 
 KAFKA_CONTAINER = kafka
@@ -24,6 +24,11 @@ help:
 	@echo "  make list-kafka-topics           - List all current Kafka topics"
 	@echo "  make read-kafka-topic TOPIC=name - Read messages from a specific Kafka topic"
 	@echo "  make install                     - Install Python dependencies"
+	@echo "  make benchmark-prepare          - Materialize TPC-DS SF5 tables into Iceberg"
+	@echo "  make benchmark-spark            - Run Spark benchmark suite"
+	@echo "  make benchmark-trino            - Run Trino benchmark suite"
+	@echo "  make benchmark-report           - Merge raw benchmark results into a report"
+	@echo "  make benchmark-all              - Prepare data, run both engines, and build report"
 
 up-streaming:
 	@echo "Starting Streaming & Real-time services (Up)..."
@@ -87,3 +92,17 @@ read-kafka-topic:
 		exit 1; \
 	fi
 	@$(PYTHON) scripts/read_topic.py $(TOPIC)
+
+benchmark-prepare:
+	@$(PYTHON) benchmark/scripts/prepare_tpcds_data.py
+
+benchmark-spark:
+	@$(PYTHON) benchmark/scripts/run_spark_benchmark.py
+
+benchmark-trino:
+	@$(PYTHON) benchmark/scripts/run_trino_benchmark.py
+
+benchmark-report:
+	@$(PYTHON) benchmark/scripts/build_report.py
+
+benchmark-all: benchmark-prepare benchmark-spark benchmark-trino benchmark-report
