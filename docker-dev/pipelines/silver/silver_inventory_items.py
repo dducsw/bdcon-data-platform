@@ -2,24 +2,24 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp
 
 def transform_table(spark: SparkSession, source_table: str, target_table: str) -> None:
-    """Cleans and deduplicates order item data for the Silver layer."""
+    """Cleans and deduplicates inventory items data for the Silver layer."""
     print(f"Transforming {source_table} to {target_table}...")
 
-    # 1. Create table with explicit schema (source_updated_at for business)
+    # 1. Create table with explicit schema and partitioning
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {target_table} (
             id BIGINT,
-            order_id BIGINT,
-            user_id BIGINT,
             product_id BIGINT,
-            inventory_item_id BIGINT,
-            status STRING,
             created_at TIMESTAMP,
-            source_updated_at TIMESTAMP,
-            shipped_at TIMESTAMP,
-            delivered_at TIMESTAMP,
-            returned_at TIMESTAMP,
-            sale_price DOUBLE,
+            sold_at TIMESTAMP,
+            cost DOUBLE,
+            product_category STRING,
+            product_name STRING,
+            product_brand STRING,
+            product_retail_price DOUBLE,
+            product_department STRING,
+            product_sku STRING,
+            product_distribution_center_id BIGINT,
             updated_at TIMESTAMP
         ) USING iceberg
         PARTITIONED BY (days(created_at))
@@ -28,23 +28,24 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
     # 2. Read from Bronze
     df_bronze = spark.read.table(source_table)
 
-    # 3. Cleansing and metadata
+    # 3. Transform and metadata
     df_silver = (
         df_bronze.select(
             col("id").cast("long"),
-            col("order_id").cast("long"),
-            col("user_id").cast("long"),
             col("product_id").cast("long"),
-            col("inventory_item_id").cast("long"),
-            "status",
             col("created_at").cast("timestamp"),
-            col("source_updated_at").cast("timestamp"),
-            col("shipped_at").cast("timestamp"),
-            col("delivered_at").cast("timestamp"),
-            col("returned_at").cast("timestamp"),
-            col("sale_price").cast("double")
+            col("sold_at").cast("timestamp"),
+            col("cost").cast("double"),
+            "product_category",
+            "product_name",
+            "product_brand",
+            col("product_retail_price").cast("double"),
+            "product_department",
+            "product_sku",
+            col("product_distribution_center_id").cast("long")
         )
         .withColumn("updated_at", current_timestamp())
+        .dropDuplicates(["id"])
     )
 
     # 4. Write to Silver Iceberg
@@ -53,19 +54,19 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
         .append()
     )
     
-    print(f"Transformation of order_items completed.")
+    print(f"Transformation of inventory_items completed.")
 
 if __name__ == "__main__":
     spark = (
         SparkSession.builder
-        .appName("Silver-Transform-Order-Items")
+        .appName("Silver-Transform-Inventory-Items")
         .getOrCreate()
     )
 
     spark.sparkContext.setLogLevel("ERROR")
 
-    source = "catalog_iceberg.bronze.order_items"
-    target = "catalog_iceberg.silver.order_items"
+    source = "catalog_iceberg.bronze.inventory_items"
+    target = "catalog_iceberg.silver.inventory_items"
     
     transform_table(spark, source, target)
     

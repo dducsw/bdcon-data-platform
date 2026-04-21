@@ -29,6 +29,10 @@ help:
 	@echo "  make benchmark-trino            - Run Trino benchmark suite"
 	@echo "  make benchmark-report           - Merge raw benchmark results into a report"
 	@echo "  make benchmark-all              - Prepare data, run both engines, and build report"
+	@echo "  make pipeline-bronze            - Run all Bronze layer ingestion scripts"
+	@echo "  make pipeline-silver            - Run all Silver layer transformation scripts"
+	@echo "  make pipeline-gold              - Run all Gold layer aggregation scripts"
+	@echo "  make pipeline-all               - Run full Medallion pipeline (Bronze -> Silver -> Gold)"
 
 up-streaming:
 	@echo "Starting Streaming & Real-time services (Up)..."
@@ -112,3 +116,40 @@ benchmark-report:
 	@$(PYTHON) benchmark/scripts/build_report.py
 
 benchmark-all: benchmark-prepare benchmark-spark benchmark-trino benchmark-report
+
+# ================================================================
+# Data Pipeline (Medallion Architecture)
+# ================================================================
+SPARK_MASTER = spark-master
+PYTHONPATH_ENV = /opt/spark/apps/pipelines
+
+pipeline-bronze:
+	@echo "🚀 Running Bronze Layer Ingestion..."
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_users.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_orders.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_order_items.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_products.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_distribution_centers.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_inventory_items.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/bronze/bronze_events.py
+	@echo "✅ Bronze layer completed."
+
+pipeline-silver:
+	@echo "🚀 Running Silver Layer Transformation..."
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_users.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_orders.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_order_items.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_products.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_events.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_distribution_centers.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/silver/silver_inventory_items.py
+	@echo "✅ Silver layer completed."
+
+pipeline-gold:
+	@echo "🚀 Running Gold Layer Aggregation..."
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/gold/gold_sales_performance.py
+	docker exec -e PYTHONPATH=$(PYTHONPATH_ENV) $(SPARK_MASTER) python /opt/spark/apps/pipelines/gold/gold_user_engagement.py
+	@echo "✅ Gold layer completed."
+
+pipeline-all: pipeline-bronze pipeline-silver pipeline-gold
+	@echo "🎯 Full Medallion Pipeline executed successfully!"

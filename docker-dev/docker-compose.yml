@@ -247,18 +247,19 @@ services:
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
       - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CLUSTER_ID=abcdefghijklmnopqrstuv
+      - CLUSTER_ID=abcdefghijklmnopqrstuv
     mem_limit: 768m
     cpus: 0.5
     volumes:
-      - kafka_data:/tmp/kafka-logs
+      - kafka_data:/var/lib/kafka/data
     networks:
       - docker-dev-platform
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
+      start_period: 60s
 
 
   # Data Visualization and Exploration: Apache Superset

@@ -1,21 +1,39 @@
 import os
 from pyspark.sql import SparkSession
-from schemas import ORDER_SCHEMA_DDL
+from pyspark.sql.functions import current_timestamp, col
 
-def ingest_jdbc_to_iceberg(spark: SparkSession, source_table: str, target_table: str, schema_ddl: str = None) -> None:
+def ingest_jdbc_to_iceberg(spark: SparkSession, source_table: str, target_table: str) -> None:
     """Ingests data from a PostgreSQL table to an Iceberg table using JDBC."""
     db_host = os.getenv("DB_HOST", "postgres")
     db_port = os.getenv("DB_PORT", "5432")
-    db_name = os.getenv("DB_NAME", "fh_dev")
-    db_user = os.getenv("DB_USER", "db_user")
-    db_password = os.getenv("DB_PASSWORD", "db_password")
+    db_name = os.getenv("DB_NAME", "thelook_ecommerce")
+    db_user = os.getenv("DB_USER", "postgres")
+    db_password = os.getenv("DB_PASSWORD", "postgres")
     
     jdbc_url = f"jdbc:postgresql://{db_host}:{db_port}/{db_name}"
 
     print(f"Ingesting {source_table} from Postgres to {target_table}...")
 
-    # 1. Read from Postgres
-    reader = (
+    # 1. Create table with explicit schema (source_updated_at for business)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {target_table} (
+            order_id BIGINT,
+            user_id BIGINT,
+            status STRING,
+            gender STRING,
+            created_at TIMESTAMP,
+            source_updated_at TIMESTAMP,
+            returned_at TIMESTAMP,
+            shipped_at TIMESTAMP,
+            delivered_at TIMESTAMP,
+            num_of_item INT,
+            load_at TIMESTAMP
+        ) USING iceberg
+        PARTITIONED BY (days(created_at))
+    """)
+
+    # 2. Read from Postgres
+    df = (
         spark.read
         .format("jdbc")
         .option("url", jdbc_url)
@@ -23,17 +41,18 @@ def ingest_jdbc_to_iceberg(spark: SparkSession, source_table: str, target_table:
         .option("user", db_user)
         .option("password", db_password)
         .option("driver", "org.postgresql.Driver")
+        .load()
     )
     
-    if schema_ddl:
-        reader = reader.option("customSchema", schema_ddl)
+    # 3. Add metadata and rename business updated_at
+    df_transformed = (
+        df.withColumnRenamed("updated_at", "source_updated_at")
+        .withColumn("load_at", current_timestamp())
+    )
     
-    df = reader.load()
-
-    # 2. Write to Iceberg
     (
-        df.writeTo(target_table)
-        .createOrReplace()
+        df_transformed.writeTo(target_table)
+        .append()
     )
     
     print(f"Ingestion of {source_table} completed.")
@@ -50,6 +69,6 @@ if __name__ == "__main__":
     source = "orders"
     target = "catalog_iceberg.bronze.orders"
     
-    ingest_jdbc_to_iceberg(spark, source, target, ORDER_SCHEMA_DDL)
+    ingest_jdbc_to_iceberg(spark, source, target)
     
     spark.stop()

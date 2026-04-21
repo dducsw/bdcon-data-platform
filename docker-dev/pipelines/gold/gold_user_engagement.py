@@ -1,35 +1,37 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count, date_trunc, countDistinct
+from pyspark.sql.functions import col, count, max, current_timestamp
 
 def aggregate_data(spark: SparkSession, target_table: str) -> None:
     """Aggregates user engagement data for the Gold layer."""
     print(f"Aggregating data into {target_table}...")
 
-    # 1. Read from Silver
+    # 1. Create table with explicit schema
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {target_table} (
+            user_id BIGINT,
+            event_count LONG,
+            last_event_at TIMESTAMP,
+            updated_at TIMESTAMP
+        ) USING iceberg
+    """)
+
+    # 2. Read from Silver
     events_df = spark.read.table("catalog_iceberg.silver.events")
 
-    # 2. Aggregate: Daily active users and event distribution
+    # 3. Aggregate
     gold_df = (
-        events_df
-        .select(
-            date_trunc("day", col("created_at")).alias("event_date"),
-            "user_id",
-            "session_id",
-            "event_type"
-        )
-        .groupBy("event_date")
+        events_df.groupBy("user_id")
         .agg(
-            countDistinct("user_id").alias("daily_active_users"),
-            countDistinct("session_id").alias("total_sessions"),
-            count("*").alias("total_events")
+            count("*").alias("event_count"),
+            max("created_at").alias("last_event_at")
         )
-        .orderBy("event_date")
+        .withColumn("updated_at", current_timestamp())
     )
 
-    # 3. Write to Gold Iceberg
+    # 4. Write to Gold Iceberg
     (
         gold_df.writeTo(target_table)
-        .createOrReplace()
+        .append()
     )
     
     print(f"Aggregation of user_engagement completed.")

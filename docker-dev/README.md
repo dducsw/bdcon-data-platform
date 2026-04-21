@@ -66,9 +66,16 @@ docker compose up --detach --build
    docker exec -it spark-master spark-sql -f /opt/spark/apps/setup/create_schema.sql
    ```
 
-3. **Run a Pipeline**:
-   ```shell
-   docker exec -it spark-master python /opt/spark/apps/pipelines/create_example_table.py
+3. **Run the Medallion Pipeline**:
+   The project includes a complete Medallion architecture pipeline. You can run individual layers or the entire pipeline using `make`:
+   ```bash
+   # Run everything (Bronze -> Silver -> Gold)
+   make pipeline-all
+
+   # Or run layer by layer
+   make pipeline-bronze
+   make pipeline-silver
+   make pipeline-gold
    ```
 
 4. **Using Notebooks**:
@@ -93,6 +100,25 @@ SELECT * FROM catalog_iceberg.hive.table_iceberg;
 ```shell
 docker exec -it trino trino --catalog catalog_iceberg --schema schema_iceberg
 SELECT * FROM table_iceberg;
+```
+
+### 🏮 Medallion Data Architecture
+
+The pipeline implements a standard Medallion architecture with explicit schema enforcement and optimized Iceberg partitioning:
+
+| Layer | Purpose | Partitioning | Metadata Columns |
+|-------|---------|--------------|------------------|
+| **Bronze** | Raw data from Source | `days(created_at)` | `source_updated_at`, `load_at` |
+| **Silver** | Cleaned & Deduplicated | `days(created_at)` | `source_updated_at`, `updated_at` |
+| **Gold** | Aggregated & Analytics-ready | Business Logic | `updated_at` |
+
+**Verification in Trino:**
+```sql
+-- Check Bronze users
+SELECT id, source_updated_at, load_at FROM catalog_iceberg.bronze.users LIMIT 10;
+
+-- Check Silver users
+SELECT id, source_updated_at, updated_at FROM catalog_iceberg.silver.users LIMIT 10;
 ```
 
 ## Benchmarking Spark vs Trino

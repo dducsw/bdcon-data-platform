@@ -1,17 +1,28 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, count, date_trunc
+from pyspark.sql.functions import col, sum, count, date_trunc, current_timestamp
 
 def aggregate_data(spark: SparkSession, target_table: str) -> None:
     """Aggregates sales performance data for the Gold layer."""
     print(f"Aggregating data into {target_table}...")
 
-    # 1. Read from Silver
+    # 1. Create table with explicit schema and partitioning
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {target_table} (
+            order_date TIMESTAMP,
+            product_category STRING,
+            total_revenue DOUBLE,
+            total_items_sold LONG,
+            updated_at TIMESTAMP
+        ) USING iceberg
+        PARTITIONED BY (days(order_date))
+    """)
+
+    # 2. Read from Silver
     orders_df = spark.read.table("catalog_iceberg.silver.orders")
     items_df = spark.read.table("catalog_iceberg.silver.order_items")
     products_df = spark.read.table("catalog_iceberg.silver.products")
 
-    # 2. Join and Aggregate
-    # Daily sales performance by product category
+    # 3. Join and Aggregate
     gold_df = (
         items_df.alias("i")
         .join(orders_df.alias("o"), col("i.order_id") == col("o.order_id"))
@@ -26,13 +37,14 @@ def aggregate_data(spark: SparkSession, target_table: str) -> None:
             sum("sale_price").alias("total_revenue"),
             count("*").alias("total_items_sold")
         )
+        .withColumn("updated_at", current_timestamp())
         .orderBy("order_date", "product_category")
     )
 
-    # 3. Write to Gold Iceberg
+    # 4. Write to Gold Iceberg
     (
         gold_df.writeTo(target_table)
-        .createOrReplace()
+        .append()
     )
     
     print(f"Aggregation of sales_performance completed.")
