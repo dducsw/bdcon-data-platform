@@ -15,6 +15,15 @@ notebooks/derby.log
 notebooks
 producer_checkpoint.json
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
 # ---------------------------------------------------------------
 # Terraform — never commit state or real variable values
 # ---------------------------------------------------------------

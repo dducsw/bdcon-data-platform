@@ -1,4 +1,4 @@
-﻿# 🌊 K8s Data Platform (Lakehouse)
+# 🌊 K8s Data Platform (Lakehouse)
 
 A scalable, cost-optimized Modern Data Platform built on Kubernetes (Google Kubernetes Engine). This project provides a full-stack, open-source data infrastructure optimized for development and experimentation using a **100% Spot Instances** strategy to minimalize cloud costs.
 
@@ -59,6 +59,13 @@ If you are joining the project as a developer or partner to submit Spark jobs, e
 If you are responsible for provisioning the GCP infrastructure or deploying the Kubernetes services from scratch, refer to our operational runbooks:
 1. **[Infrastructure Provisioning](docs/runbooks/bootstrap-gke.md)** (Terraform)
 2. **[Platform Deployment](docs/runbooks/deploy-platform.md)** (Helm + Kustomize)
+
+### For Local Testing (Docker Compose)
+If you just want to run a local Lakehouse cluster without Kubernetes, see the **[Local Development Guide (docker-dev/README.md)](docker-dev/README.md)**.
+You can run the full Medallion pipeline locally with:
+```bash
+make -C docker-dev pipeline-all
+```
 
 ## ⚙️ Operations & Deployment Model
 
