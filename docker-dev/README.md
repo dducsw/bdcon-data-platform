@@ -86,7 +86,7 @@ You can query tables using either Spark or Trino:
 **Spark SQL:**
 ```shell
 docker exec -it spark-master spark-sql
-SELECT * FROM catalog_iceberg.schema_iceberg.table_iceberg;
+SELECT * FROM catalog_iceberg.hive.table_iceberg;
 ```
 
 **Trino CLI:**

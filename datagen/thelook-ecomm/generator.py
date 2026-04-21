@@ -8,6 +8,7 @@ from faker import Faker
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 
 from src.db_writer import DataWriter
+from src.kafka_writer import KafkaWriter
 from src.models import User, Order, OrderItem, Event, OrderStatus, EventCategory
 from src.utils import generate_from_csv
 
@@ -32,6 +33,11 @@ class TheLookECommSimulator:
             args.db_name,
             args.db_schema,
             args.db_batch_size,
+        )
+        self.kafka_writer = KafkaWriter(
+            args.bootstrap_servers,
+            args.topic_prefix,
+            args.topic,
         )
         self.consecutive_db_errors = 0
         self.max_consecutive_errors = 3
@@ -258,6 +264,11 @@ class TheLookECommSimulator:
                 data=purchase_events,
                 conflict_keys=["id"],
             ),
+            asyncio.to_thread(
+                self.kafka_writer.send,
+                data=purchase_events,
+                table="events",
+            ),
         )
 
     def _simulate_order_update(self):
@@ -322,6 +333,7 @@ class TheLookECommSimulator:
         )
         if random_events:
             self.writer.upsert(table="events", data=random_events, conflict_keys=["id"])
+            self.kafka_writer.send(data=random_events, table="events")
 
     async def _simulate_side_tasks(self):
         """Runs secondary simulation events based on their respective probabilities."""
@@ -364,6 +376,13 @@ class TheLookECommSimulator:
                     table="events",
                     data=ghost_events,
                     conflict_keys=["id"],
+                )
+            )
+            side_tasks.append(
+                asyncio.to_thread(
+                    self.kafka_writer.send,
+                    data=ghost_events,
+                    table="events",
                 )
             )
 
@@ -421,6 +440,8 @@ class TheLookECommSimulator:
         logging.info("Closing database connection...")
         if self.writer.conn and not self.writer.conn.closed:
             await asyncio.to_thread(self.writer.close)
+        if self.kafka_writer:
+            await asyncio.to_thread(self.kafka_writer.close)
         logging.info("Database connection closed.")
 
 
@@ -469,6 +490,7 @@ def main():
     ## --- Kafka Arguments ---
     parser.add_argument("--bootstrap-servers", type=str, default="localhost:9092", help="Bootstrap server addresses.")
     parser.add_argument("--topic-prefix", type=str, default="ecomm", help="Kafka topic prefix.")
+    parser.add_argument("--topic", type=str, default=None, help="Specific Kafka topic to use. Overrides prefix.table naming.")
     # fmt: on
 
     args = parser.parse_args()

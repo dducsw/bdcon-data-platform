@@ -213,6 +213,8 @@ services:
       - ./infrastructure/trino/etc/config.properties:/etc/trino/config.properties
       - ./infrastructure/trino/etc/jvm.config:/etc/trino/jvm.config
       - ./infrastructure/trino/etc/catalog:/etc/trino/catalog
+      - ./infrastructure/trino/etc/kafka:/etc/trino/kafka
+      - ./infrastructure/trino/etc/gcs:/etc/trino/gcs
     depends_on:
       gravitino:
         condition: service_healthy
@@ -276,6 +278,74 @@ services:
     mem_limit: 1g
     cpus: 0.5
     command: ["/bin/bash", "/app/init.sh"]
+    networks:
+      - docker-dev-platform
+
+  # DB Setup for Generator
+  db-setup:
+    image: postgres:16
+    container_name: db-setup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: [ "bash", "-c" ]
+    command: >
+      "
+      export PGPASSWORD=postgres;
+      psql -h postgres -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'thelook_ecommerce'\" | grep -q 1 || psql -h postgres -U postgres -c \"CREATE DATABASE thelook_ecommerce\";
+      echo 'Database setup completed.'
+      "
+    networks:
+      - docker-dev-platform
+
+  # Kafka Setup for Generator
+  kafka-setup:
+    image: apache/kafka:latest
+    container_name: kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: |
+      "
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic click_events --partitions 1 --replication-factor 1
+      echo 'Kafka setup completed.'
+      "
+    networks:
+      - docker-dev-platform
+
+  # Data Generator Service
+  datagen:
+    build:
+      context: ../datagen/thelook-ecomm
+      dockerfile: Dockerfile
+    container_name: datagen
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+      kafka-setup:
+        condition: service_completed_successfully
+    command: 
+      - python
+      - generator.py
+      - --db-host
+      - postgres
+      - --db-user
+      - postgres
+      - --db-password
+      - postgres
+      - --db-name
+      - thelook_ecommerce
+      - --bootstrap-servers
+      - kafka:29092
+      - --avg-qps
+      - "20.0"
+      - --topic
+      - click_events
     networks:
       - docker-dev-platform
 

@@ -1,0 +1,35 @@
+{
+  "tableName": "buswaypoint_json",
+  "schemaName": "default",
+  "topicName": "buswaypoint_json",
+  "message": {
+    "dataFormat": "json",
+    "fields": [
+      {
+        "name": "bus_id",
+        "type": "VARCHAR",
+        "mapping": "bus_id"
+      },
+      {
+        "name": "route_id",
+        "type": "VARCHAR",
+        "mapping": "route_id"
+      },
+      {
+        "name": "latitude",
+        "type": "DOUBLE",
+        "mapping": "latitude"
+      },
+      {
+        "name": "longitude",
+        "type": "DOUBLE",
+        "mapping": "longitude"
+      },
+      {
+        "name": "event_ts",
+        "type": "VARCHAR",
+        "mapping": "event_ts"
+      }
+    ]
+  }
+}

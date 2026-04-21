@@ -22,7 +22,7 @@ help:
 	@echo "  make restart                     - Restart all services"
 	@echo "  make init-kafka-topics           - Create necessary Kafka topics for the project"
 	@echo "  make list-kafka-topics           - List all current Kafka topics"
-	@echo "  make read-kafka-topic TOPIC=name - Read messages from a specific Kafka topic"
+	@echo "  make read-kafka-topic TOPIC=name [GROUP=group_id] - Read messages from a specific Kafka topic"
 	@echo "  make install                     - Install Python dependencies"
 	@echo "  make benchmark-prepare          - Materialize TPC-DS SF5 tables into Iceberg"
 	@echo "  make benchmark-spark            - Run Spark benchmark suite"
@@ -67,7 +67,7 @@ restart:
 	docker-compose restart
 
 init-kafka-topics:
-	@echo "Creating Kafka topics (buswaypoint_json)..."
+	@echo "Creating Kafka topics (buswaypoint_json, click_events)..."
 	@if ! docker ps | grep -q $(KAFKA_CONTAINER); then \
 		echo "Error: $(KAFKA_CONTAINER) container is not running! Start docker-compose first."; \
 		exit 1; \
@@ -75,6 +75,12 @@ init-kafka-topics:
 	@docker exec $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
 		--create --if-not-exists \
 		--topic buswaypoint_json \
+		--bootstrap-server $(BOOTSTRAP_SERVER) \
+		--partitions 2 \
+		--replication-factor 1
+	@docker exec $(KAFKA_CONTAINER) /opt/kafka/bin/kafka-topics.sh \
+		--create --if-not-exists \
+		--topic click_events \
 		--bootstrap-server $(BOOTSTRAP_SERVER) \
 		--partitions 2 \
 		--replication-factor 1
@@ -91,7 +97,7 @@ read-kafka-topic:
 		echo "Error: Please specify a topic using TOPIC=topic_name. Example: make read-kafka-topic TOPIC=buswaypoint_json"; \
 		exit 1; \
 	fi
-	@$(PYTHON) scripts/read_topic.py $(TOPIC)
+	@$(PYTHON) scripts/verify/read_topic.py $(TOPIC) $(GROUP)
 
 benchmark-prepare:
 	@$(PYTHON) benchmark/scripts/prepare_tpcds_data.py

@@ -9,14 +9,17 @@ def main():
         sys.exit(1)
         
     topic_name = sys.argv[1]
-    print(f"Reading messages from topic: {topic_name}. Press Ctrl+C to stop...")
+    group_id = sys.argv[2] if len(sys.argv) > 2 else None
+    
+    print(f"Reading messages from topic: {topic_name} (Group: {group_id or 'None'}). Press Ctrl+C to stop...")
     
     try:
         consumer = KafkaConsumer(
             topic_name,
             bootstrap_servers='127.0.0.1:9092',
+            group_id=group_id,
             auto_offset_reset='earliest',
-            enable_auto_commit=False,
+            enable_auto_commit=True if group_id else False,
             value_deserializer=lambda x: str(x, 'utf-8', errors='replace'),
             api_version=(3,6,0)
         )

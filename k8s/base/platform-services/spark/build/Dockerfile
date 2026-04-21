@@ -68,7 +68,9 @@ RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-protobuf_2.12/${
 RUN wget "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_JAR_VERSION}/hadoop-aws-${HADOOP_AWS_JAR_VERSION}.jar" \
     -O $SPARK_HOME/jars/hadoop-aws-${HADOOP_AWS_JAR_VERSION}.jar && \
     wget "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}/aws-java-sdk-bundle-${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}.jar" \
-    -O $SPARK_HOME/jars/aws-java-sdk-bundle-${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}.jar
+    -O $SPARK_HOME/jars/aws-java-sdk-bundle-${AWS_JAVA_SDK_BUNDLE_JAR_VERSION}.jar && \
+    wget "https://repo1.maven.org/maven2/org/postgresql/postgresql/${POSTGRESQL_JAR_VERSION}/postgresql-${POSTGRESQL_JAR_VERSION}.jar" \
+    -O $SPARK_HOME/jars/postgresql-${POSTGRESQL_JAR_VERSION}.jar
 
 # Install AWS SDK v2 for Iceberg S3FileIO
 RUN wget "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/${AWS_SDK_V2_VERSION}/bundle-${AWS_SDK_V2_VERSION}.jar" \
