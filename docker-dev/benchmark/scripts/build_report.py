@@ -64,13 +64,15 @@ def build_validation(records: list[dict]) -> list[dict]:
     for (query_name, run_number), engines in sorted(pair_map.items()):
         spark = engines.get("spark")
         trino = engines.get("trino")
+        if not spark or not trino:
+            continue
         rows.append(
             {
                 "query_name": query_name,
                 "run_number": run_number,
-                "spark_hash": spark["result_hash"] if spark else "",
-                "trino_hash": trino["result_hash"] if trino else "",
-                "matches": bool(spark and trino and spark["result_hash"] == trino["result_hash"]),
+                "spark_hash": spark["result_hash"],
+                "trino_hash": trino["result_hash"],
+                "matches": spark["result_hash"] == trino["result_hash"],
             }
         )
     return rows

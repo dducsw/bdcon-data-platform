@@ -130,6 +130,28 @@ def run_query(env: dict, query_file: Path, app_name: str) -> subprocess.Complete
     return result
 
 
+def parse_spark_rows(stdout: str) -> list[list[str]]:
+    lines = [line.rstrip("\n") for line in stdout.splitlines()]
+
+    fetched_index = -1
+    for index, line in enumerate(lines):
+        if "Fetched " in line and " row(s)" in line:
+            fetched_index = index
+
+    if fetched_index >= 0:
+        result_lines = [line for line in lines[fetched_index + 1 :] if line.strip()]
+        return [row.split("\t") for row in result_lines]
+
+    # Fallback: some spark-sql variants print table-like output with pipes.
+    table_rows: list[list[str]] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            continue
+        table_rows.append([cell.strip() for cell in stripped[1:-1].split("|")])
+    return table_rows[1:] if table_rows else []
+
+
 def main() -> None:
     env = load_env()
     query_files = read_query_list(env)
@@ -158,11 +180,7 @@ def main() -> None:
                 "cpu_time_millis": 0,
             }
             status = "success" if completed.returncode == 0 else "failed"
-            stdout_lines = [
-                line
-                for line in completed.stdout.splitlines()
-                if line.strip() and not line.startswith("Time taken:")
-            ]
+            result_rows = parse_spark_rows(completed.stdout)
             records.append(
                 {
                     "engine": "spark",
@@ -176,8 +194,8 @@ def main() -> None:
                     "peak_memory_bytes": metrics["peak_memory_bytes"],
                     "spill_bytes": metrics["spill_bytes"],
                     "cpu_time_millis": metrics["cpu_time_millis"],
-                    "result_hash": stable_hash(stdout_lines),
-                    "row_count": max(len(stdout_lines) - 1, 0),
+                    "result_hash": stable_hash(result_rows),
+                    "row_count": len(result_rows),
                     "error_message": completed.stderr.strip(),
                 }
             )
