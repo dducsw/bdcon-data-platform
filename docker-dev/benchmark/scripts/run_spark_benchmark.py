@@ -22,6 +22,10 @@ def find_event_log(app_name: str, eventlog_dir: Path, since: float) -> Path | No
                         break
                     if app_name in line:
                         return path
+        except PermissionError:
+            # Some event logs may be created with restrictive permissions on host mounts.
+            # Skip unreadable files and continue scanning for the current app log.
+            continue
         except UnicodeDecodeError:
             continue
     return None
@@ -31,16 +35,23 @@ def parse_event_log(path: Path) -> dict:
     peak_memory = 0
     spill_bytes = 0
     cpu_time_millis = 0
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            event = json.loads(line)
-            if event.get("Event") != "SparkListenerTaskEnd":
-                continue
-            metrics = event.get("Task Metrics", {})
-            peak_memory = max(peak_memory, metrics.get("Peak Execution Memory", 0))
-            spill_bytes += metrics.get("Memory Bytes Spilled", 0)
-            spill_bytes += metrics.get("Disk Bytes Spilled", 0)
-            cpu_time_millis += int(metrics.get("Executor CPU Time", 0) / 1_000_000)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                event = json.loads(line)
+                if event.get("Event") != "SparkListenerTaskEnd":
+                    continue
+                metrics = event.get("Task Metrics", {})
+                peak_memory = max(peak_memory, metrics.get("Peak Execution Memory", 0))
+                spill_bytes += metrics.get("Memory Bytes Spilled", 0)
+                spill_bytes += metrics.get("Disk Bytes Spilled", 0)
+                cpu_time_millis += int(metrics.get("Executor CPU Time", 0) / 1_000_000)
+    except (PermissionError, OSError):
+        return {
+            "peak_memory_bytes": 0,
+            "spill_bytes": 0,
+            "cpu_time_millis": 0,
+        }
     return {
         "peak_memory_bytes": peak_memory,
         "spill_bytes": spill_bytes,
