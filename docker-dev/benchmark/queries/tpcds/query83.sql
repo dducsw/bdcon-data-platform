@@ -11,9 +11,9 @@ WITH sr_items
                                WHERE  d_week_seq IN (SELECT d_week_seq 
                                                      FROM   date_dim 
                                                      WHERE 
-                                      d_date IN ( '1999-06-30', 
-                                                  '1999-08-28', 
-                                                  '1999-11-18' 
+                                                                                                                                     d_date IN ( DATE '1999-06-30', 
+                                                                                                                                                                               DATE '1999-08-28', 
+                                                                                                                                                                               DATE '1999-11-18' 
                                                 ))) 
                 AND sr_returned_date_sk = d_date_sk 
          GROUP  BY i_item_id), 
@@ -29,9 +29,9 @@ WITH sr_items
                                WHERE  d_week_seq IN (SELECT d_week_seq 
                                                      FROM   date_dim 
                                                      WHERE 
-                                      d_date IN ( '1999-06-30', 
-                                                  '1999-08-28', 
-                                                  '1999-11-18' 
+                                                                                                                                     d_date IN ( DATE '1999-06-30', 
+                                                                                                                                                                               DATE '1999-08-28', 
+                                                                                                                                                                               DATE '1999-11-18' 
                                                 ))) 
                 AND cr_returned_date_sk = d_date_sk 
          GROUP  BY i_item_id), 
@@ -47,9 +47,9 @@ WITH sr_items
                                WHERE  d_week_seq IN (SELECT d_week_seq 
                                                      FROM   date_dim 
                                                      WHERE 
-                                      d_date IN ( '1999-06-30', 
-                                                  '1999-08-28', 
-                                                  '1999-11-18' 
+                                                                                                                                     d_date IN ( DATE '1999-06-30', 
+                                                                                                                                                                               DATE '1999-08-28', 
+                                                                                                                                                                               DATE '1999-11-18' 
                                                 ))) 
                 AND wr_returned_date_sk = d_date_sk 
          GROUP  BY i_item_id) 

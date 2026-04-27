@@ -130,26 +130,33 @@ def run_query(env: dict, query_file: Path, app_name: str) -> subprocess.Complete
     return result
 
 
-def parse_spark_rows(stdout: str) -> list[list[str]]:
-    lines = [line.rstrip("\n") for line in stdout.splitlines()]
+def parse_spark_rows(stdout: str, stderr: str = "") -> list[list[str]]:
+    """
+    Parses spark-sql output into a list of rows.
+    Uses stdout for data and ignores known metadata/log patterns.
+    """
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    data_rows = []
+    
+    # Patterns that, if present anywhere in the line, mark it as non-data
+    metadata_patterns = ["Time taken:", "Fetched", "row(s)", "SLF4J:", "WARN", "INFO", "ERROR", "DEBUG"]
+    # Prefixes for log lines
+    log_prefixes = ("::", "Spark Web UI", "Spark master:", "Setting", "Ivy", "The jars", "resolving", "confs:", "found", "resolution", "modules", "retrieving", "artifacts", "org.apache")
 
-    fetched_index = -1
-    for index, line in enumerate(lines):
-        if "Fetched " in line and " row(s)" in line:
-            fetched_index = index
-
-    if fetched_index >= 0:
-        result_lines = [line for line in lines[fetched_index + 1 :] if line.strip()]
-        return [row.split("\t") for row in result_lines]
-
-    # Fallback: some spark-sql variants print table-like output with pipes.
-    table_rows: list[list[str]] = []
     for line in lines:
-        stripped = line.strip()
-        if not stripped.startswith("|") or not stripped.endswith("|"):
+        # Skip if any metadata pattern is present
+        if any(p in line for p in metadata_patterns):
             continue
-        table_rows.append([cell.strip() for cell in stripped[1:-1].split("|")])
-    return table_rows[1:] if table_rows else []
+        # Skip if it starts with a log prefix
+        if line.startswith(log_prefixes):
+            continue
+        # Skip date-prefixed log lines (e.g., 24/04/27 10:20:30)
+        if len(line) > 10 and line[2] == "/" and line[5] == "/" and " " in line[:11]:
+            continue
+            
+        data_rows.append(line.split("\t"))
+        
+    return data_rows
 
 
 def main() -> None:
@@ -160,7 +167,7 @@ def main() -> None:
     eventlog_dir = ROOT / env["SPARK_EVENTLOG_DIR"]
 
     records = []
-    raw_dir = Path(env["RESULTS_DIR"]) / "raw"
+    raw_dir = ROOT / env["RESULTS_DIR"] / "raw"
     ensure_dir(raw_dir)
 
     for query_file in query_files:
@@ -180,7 +187,7 @@ def main() -> None:
                 "cpu_time_millis": 0,
             }
             status = "success" if completed.returncode == 0 else "failed"
-            result_rows = parse_spark_rows(completed.stdout)
+            result_rows = parse_spark_rows(completed.stdout, completed.stderr)
             records.append(
                 {
                     "engine": "spark",

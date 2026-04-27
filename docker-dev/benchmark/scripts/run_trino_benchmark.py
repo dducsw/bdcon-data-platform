@@ -5,7 +5,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from common import ensure_dir, load_env, read_query_list, stable_hash, write_jsonl
+from common import ROOT, ensure_dir, load_env, read_query_list, stable_hash, write_jsonl
 
 
 def post_query(sql: str, env: dict, source: str) -> dict:
@@ -55,7 +55,7 @@ def main() -> None:
     runs = int(env["RUNS"])
 
     records = []
-    raw_dir = Path(env["RESULTS_DIR"]) / "raw"
+    raw_dir = ROOT / env["RESULTS_DIR"] / "raw"
     ensure_dir(raw_dir)
 
     for query_file in query_files:

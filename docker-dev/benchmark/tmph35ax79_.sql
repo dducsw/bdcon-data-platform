@@ -1,3 +1,4 @@
+USE catalog_iceberg.benchmark_tpcds_sf1;
 -- start query 23 in stream 0 using template query23.tpl 
 WITH frequent_ss_items 
      AS (SELECT Substr(i_item_desc, 1, 30) itemdesc, 
@@ -56,4 +57,4 @@ FROM   (SELECT cs_quantity * cs_list_price sales
                AND ws_item_sk IN (SELECT item_sk 
                                   FROM   frequent_ss_items) 
                AND ws_bill_customer_sk IN (SELECT c_customer_sk 
-                                           FROM   best_ss_customer)) LIMIT 100; 
+                                           FROM   best_ss_customer)) LIMIT 100;

@@ -22,7 +22,7 @@ SELECT c_customer_id,
                c_birth_country, 
                c_login, 
                c_email_address, 
-               c_last_review_date, 
+               c_last_review_date_sk, 
                ctr_total_return 
 FROM   customer_total_return ctr1, 
        customer_address, 
@@ -44,6 +44,6 @@ ORDER  BY c_customer_id,
           c_birth_country, 
           c_login, 
           c_email_address, 
-          c_last_review_date, 
+          c_last_review_date_sk, 
           ctr_total_return
 LIMIT 100; 

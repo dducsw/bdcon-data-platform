@@ -10,7 +10,7 @@ WITH ss_items
                                FROM   date_dim 
                                WHERE  d_week_seq = (SELECT d_week_seq 
                                                     FROM   date_dim 
-                                                    WHERE  d_date = '2002-02-25' 
+                                                    WHERE  d_date = DATE '2002-02-25' 
                                                    )) 
                 AND ss_sold_date_sk = d_date_sk 
          GROUP  BY i_item_id), 
@@ -25,7 +25,7 @@ WITH ss_items
                                FROM   date_dim 
                                WHERE  d_week_seq = (SELECT d_week_seq 
                                                     FROM   date_dim 
-                                                    WHERE  d_date = '2002-02-25' 
+                                                    WHERE  d_date = DATE '2002-02-25' 
                                                    )) 
                 AND cs_sold_date_sk = d_date_sk 
          GROUP  BY i_item_id), 
@@ -40,7 +40,7 @@ WITH ss_items
                                FROM   date_dim 
                                WHERE  d_week_seq = (SELECT d_week_seq 
                                                     FROM   date_dim 
-                                                    WHERE  d_date = '2002-02-25' 
+                                                    WHERE  d_date = DATE '2002-02-25' 
                                                    )) 
                 AND ws_sold_date_sk = d_date_sk 
          GROUP  BY i_item_id) 

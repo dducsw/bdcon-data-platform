@@ -39,7 +39,16 @@ def read_query_list(env: dict) -> List[Path]:
 
 
 def stable_hash(rows: Iterable) -> str:
-    payload = json.dumps(list(rows), sort_keys=True, default=str)
+    # Sort rows to handle non-deterministic ordering from distributed engines.
+    # We use json.dumps as a sort key to safely handle mixed types or nested structures.
+    rows_list = list(rows)
+    try:
+        rows_list.sort()
+    except TypeError:
+        # Fallback for mixed types that can't be directly compared
+        rows_list.sort(key=lambda x: json.dumps(x, default=str))
+    
+    payload = json.dumps(rows_list, sort_keys=True, default=str)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
