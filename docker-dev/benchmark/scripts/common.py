@@ -39,16 +39,23 @@ def read_query_list(env: dict) -> List[Path]:
 
 
 def stable_hash(rows: Iterable) -> str:
-    # Sort rows to handle non-deterministic ordering from distributed engines.
-    # We use json.dumps as a sort key to safely handle mixed types or nested structures.
-    rows_list = list(rows)
-    try:
-        rows_list.sort()
-    except TypeError:
-        # Fallback for mixed types that can't be directly compared
-        rows_list.sort(key=lambda x: json.dumps(x, default=str))
+    # Convert all values to string to ensure consistency between engines
+    # and handle nulls/None consistently (Spark uses "NULL" string, Trino uses None).
+    normalized_rows = []
+    for row in rows:
+        normalized_row = []
+        for val in row:
+            if val is None or val == "NULL":
+                normalized_row.append("")
+            else:
+                normalized_row.append(str(val))
+        normalized_rows.append(normalized_row)
     
-    payload = json.dumps(rows_list, sort_keys=True, default=str)
+    # Sort rows to handle non-deterministic ordering from distributed engines.
+    # We use json.dumps as a sort key to safely handle nested structures.
+    normalized_rows.sort(key=lambda x: json.dumps(x))
+    
+    payload = json.dumps(normalized_rows, sort_keys=True)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 

@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from common import ensure_dir, load_env, write_csv
+from common import ROOT, ensure_dir, load_env, write_csv
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -80,9 +80,10 @@ def build_validation(records: list[dict]) -> list[dict]:
 
 def main() -> None:
     env = load_env()
-    raw_dir = Path(env["RESULTS_DIR"]) / "raw"
-    merged_dir = Path(env["RESULTS_DIR"]) / "merged"
-    reports_dir = Path(env["RESULTS_DIR"]) / "reports"
+    results_root = ROOT / env["RESULTS_DIR"]
+    raw_dir = results_root / "raw"
+    merged_dir = results_root / "merged"
+    reports_dir = results_root / "reports"
     ensure_dir(merged_dir)
     ensure_dir(reports_dir)
 
