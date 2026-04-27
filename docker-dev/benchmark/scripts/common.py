@@ -38,22 +38,46 @@ def read_query_list(env: dict) -> List[Path]:
     return files
 
 
+def normalize_value(val) -> str:
+    """
+    Standardizes a value for consistent hashing across different engines.
+    - Numbers are rounded to 4 decimal places.
+    - NULLs and 'None' are converted to 'NULL'.
+    - Strings are trimmed.
+    """
+    if val is None:
+        return "NULL"
+    
+    s_val = str(val).strip()
+    if s_val.upper() in ("NULL", "NONE", ""):
+        return "NULL"
+
+    # Try to handle numeric values (even if they come in as strings from Spark)
+    try:
+        # Check if it's a number
+        f_val = float(s_val)
+        # Round and format as a fixed-point string to avoid scientific notation or precision diffs
+        return "{:.4f}".format(round(f_val, 4))
+    except (ValueError, TypeError):
+        # Not a number, return as-is
+        return s_val
+
+
 def stable_hash(rows: Iterable) -> str:
-    # Convert all values to string to ensure consistency between engines
-    # and handle nulls/None consistently (Spark uses "NULL" string, Trino uses None).
+    """
+    Computes a deterministic hash for a set of result rows.
+    Normalizes types and formatting to ensure consistency across engines.
+    """
     normalized_rows = []
     for row in rows:
-        normalized_row = []
-        for val in row:
-            if val is None or val == "NULL":
-                normalized_row.append("")
-            else:
-                normalized_row.append(str(val))
-        normalized_rows.append(normalized_row)
+        normalized_rows.append([normalize_value(cell) for cell in row])
     
-    # Sort rows to handle non-deterministic ordering from distributed engines.
-    # We use json.dumps as a sort key to safely handle nested structures.
-    normalized_rows.sort(key=lambda x: json.dumps(x))
+    # Sort rows to handle non-deterministic ordering
+    try:
+        normalized_rows.sort()
+    except TypeError:
+        # Fallback for complex structures if any
+        normalized_rows.sort(key=lambda x: json.dumps(x, sort_keys=True))
     
     payload = json.dumps(normalized_rows, sort_keys=True)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
