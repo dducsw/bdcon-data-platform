@@ -51,3 +51,6 @@ k8s/spark/build/logs/
 # Plain secrets look like: kind: Secret  (not ExternalSecret)
 # ---------------------------------------------------------------
 # k8s/secrets/plain-*.yaml   # Uncomment if you add plain-secret files
+
+# Data files (large)
+datagen/data/thelook_ecommerce.events.csv

@@ -3,14 +3,31 @@ import asyncio
 import random
 import logging
 import datetime
+import os
+import sys
+import threading
+from pathlib import Path
 
 from faker import Faker
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+# Local: datagen/thelook-ecomm/generator.py  -> parents[2] = repo root
+# Docker: /app/generator.py                  -> parents[0] = /app (src/ is copied here)
+try:
+    REPO_ROOT = SCRIPT_DIR.parents[1]  # datagen/thelook-ecomm -> repo root
+    if not (REPO_ROOT / "src").exists():
+        raise IndexError("src/ not found at parents[1], try script dir")
+except (IndexError, OSError):
+    REPO_ROOT = SCRIPT_DIR  # Docker: /app has src/ copied directly
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from src.db_writer import DataWriter
-from src.kafka_writer import KafkaWriter
-from src.models import User, Order, OrderItem, Event, OrderStatus, EventCategory
+from src.id_allocator import IdAllocator
+from src.models import User, Order, OrderItem, Event, OrderStatus, EventCategory, PRODUCT_MAP
 from src.utils import generate_from_csv
+from src.clickstream.event_publisher import ClickstreamEventPublisher
 
 logging.basicConfig(
     level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s"
@@ -27,22 +44,29 @@ class TheLookECommSimulator:
         self.args = args
         self.fake = fake
         self.writer = DataWriter(
-            args.db_user,
-            args.db_password,
-            args.db_host,
-            args.db_name,
-            args.db_schema,
-            args.db_batch_size,
-        )
-        self.kafka_writer = KafkaWriter(
-            args.bootstrap_servers,
-            args.topic_prefix,
-            args.topic,
+            user=args.db_user,
+            password=args.db_password,
+            host=args.db_host,
+            db_name=args.db_name,
+            schema=args.db_schema,
+            port=args.db_port,
+            batch_size=args.db_batch_size,
         )
         self.consecutive_db_errors = 0
         self.max_consecutive_errors = 3
         self._next_inventory_item_id = None
         self.product_lookup = {}
+        self.user_ids = IdAllocator()
+        self.order_ids = IdAllocator()
+        self.order_item_ids = IdAllocator()
+        self.event_ids = IdAllocator()
+        self._db_lock = threading.RLock()
+        self.clickstream_publisher = None
+        if args.publish_clickstream:
+            self.clickstream_publisher = ClickstreamEventPublisher(
+                project_id=args.gcp_project_id,
+                topic_name=args.clickstream_topic,
+            )
 
     def _build_product_lookup(self, products: list[dict]) -> dict[int, dict]:
         lookup = {}
@@ -68,6 +92,39 @@ class TheLookECommSimulator:
         )
         max_id = int(existing[0]["id"]) if existing else 0
         self._next_inventory_item_id = max_id + 1
+
+    def _seed_allocator(self, allocator: IdAllocator, table: str, column: str):
+        existing = self.writer.select(
+            table=table, columns=[f"max({column}) as max_id"]
+        )
+        allocator.seed_from_existing(existing[0]["max_id"] if existing else 0)
+
+    def _seed_all_allocators(self):
+        self._seed_allocator(self.user_ids, "users", "id")
+        self._seed_allocator(self.order_ids, "orders", "order_id")
+        self._seed_allocator(self.order_item_ids, "order_items", "id")
+        self._seed_allocator(self.event_ids, "events", "id")
+        self._ensure_inventory_id_seeded()
+
+    def _assign_runtime_ids(self, order: Order, order_items: list[OrderItem], events: list[Event]):
+        order.order_id = self.order_ids.allocate()
+        for order_item in order_items:
+            order_item.id = self.order_item_ids.allocate()
+            order_item.order_id = order.order_id
+        for event in events:
+            event.id = self.event_ids.allocate()
+
+    def _sanitize_browsing_events(self, events: list[Event]) -> list[Event]:
+        import re
+        for event in events:
+            event.id = self.event_ids.allocate()
+            if event.event_type in {"purchase", "cancel", "return"}:
+                event.event_type = "product"
+            # Ensure all product events have a valid /product/{id} URI
+            if event.event_type == "product" and not re.match(r"^/product/\d+$", event.uri):
+                product_id = random.choice(list(PRODUCT_MAP.keys()))
+                event.uri = f"/product/{product_id}"
+        return events
 
     def _next_inventory_id(self) -> int:
         self._ensure_inventory_id_seeded()
@@ -99,6 +156,7 @@ class TheLookECommSimulator:
             where_params={"pid": product_id},
             order_by="created_at ASC, id ASC",
             limit=1,
+            for_update=True,
         )
 
         if inv:
@@ -107,12 +165,12 @@ class TheLookECommSimulator:
             # Auto-replenish inventory when no unsold unit exists.
             selected = self._new_inventory_row(product_id=product_id, created_at=sold_at)
             self.writer.upsert(
-                table="inventory_items", data=[selected], conflict_keys=["id"]
+                table="inventory_items", data=[selected], conflict_keys=["id"], commit=False
             )
 
         selected["sold_at"] = sold_at
         self.writer.upsert(
-            table="inventory_items", data=[selected], conflict_keys=["id"]
+            table="inventory_items", data=[selected], conflict_keys=["id"], commit=False
         )
         return int(selected["id"])
 
@@ -127,7 +185,7 @@ class TheLookECommSimulator:
             logging.info("inventory_items already populated. Skip initial seeding.")
             return
 
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         inventory_rows = []
         for product_id in self.product_lookup.keys():
             for _ in range(units_per_product):
@@ -148,43 +206,64 @@ class TheLookECommSimulator:
             await asyncio.to_thread(self.writer.create_tables_if_not_exists)
 
             logging.info("Writing initial data...")
-            init_users = [
-                User.new(
-                    country=self.args.country,
-                    state=self.args.state,
-                    postal_code=self.args.postal_code,
-                    fake=self.fake,
-                )
-                for _ in range(self.args.init_num_users)
-            ]
-
-            logging.info(f"Writing {len(init_users)} initial users...")
-            await asyncio.to_thread(
-                self.writer.upsert, table="users", data=init_users, conflict_keys=["id"]
-            )
-
-            logging.info("Writing initial products...")
             products = generate_from_csv("products.csv")
             self.product_lookup = self._build_product_lookup(products)
-            await asyncio.to_thread(
-                self.writer.upsert,
-                table="products",
-                data=products,
-                conflict_keys=["id"],
+
+            existing_users = await asyncio.to_thread(
+                self.writer.select, table="users", columns=["count(*) as cnt"]
             )
+            if int(existing_users[0]["cnt"]) == 0 and self.args.init_num_users > 0:
+                init_users = [
+                    User.new(
+                        country=self.args.country,
+                        state=self.args.state,
+                        postal_code=self.args.postal_code,
+                        fake=self.fake,
+                    )
+                    for _ in range(self.args.init_num_users)
+                ]
+                for user in init_users:
+                    user.id = self.user_ids.allocate()
+                logging.info(f"Writing {len(init_users)} initial users...")
+                await asyncio.to_thread(
+                    self.writer.upsert,
+                    table="users",
+                    data=init_users,
+                    conflict_keys=["id"],
+                )
+
+            # distribution_centers phải được insert TRƯỚC products do FK constraint
+            existing_distribution_centers = await asyncio.to_thread(
+                self.writer.select,
+                table="distribution_centers",
+                columns=["count(*) as cnt"],
+            )
+            if int(existing_distribution_centers[0]["cnt"]) == 0:
+                logging.info("Writing initial distribution centers...")
+                await asyncio.to_thread(
+                    self.writer.upsert,
+                    table="distribution_centers",
+                    data=generate_from_csv("distribution_centers.csv"),
+                    conflict_keys=["id"],
+                )
+
+            existing_products = await asyncio.to_thread(
+                self.writer.select, table="products", columns=["count(*) as cnt"]
+            )
+            if int(existing_products[0]["cnt"]) == 0:
+                logging.info("Writing initial products...")
+                await asyncio.to_thread(
+                    self.writer.upsert,
+                    table="products",
+                    data=products,
+                    conflict_keys=["id"],
+                )
 
             logging.info("Writing initial inventory items...")
             await asyncio.to_thread(
                 self._seed_initial_inventory, self.args.init_inventory_per_product
             )
-
-            logging.info("Writing initial distribution centers...")
-            await asyncio.to_thread(
-                self.writer.upsert,
-                table="distribution_centers",
-                data=generate_from_csv("distribution_centers.csv"),
-                conflict_keys=["id"],
-            )
+            await asyncio.to_thread(self._seed_all_allocators)
             logging.info("Initialization successful.")
             return True
         except (SQLAlchemyError, OperationalError) as e:
@@ -192,6 +271,51 @@ class TheLookECommSimulator:
                 f"A fatal error occurred during initial setup. Cannot continue. Error: {e}"
             )
             return False
+
+    def _persist_purchase_bundle(
+        self,
+        order: Order,
+        order_items: list[OrderItem],
+        purchase_events: list[Event],
+    ):
+        with self._db_lock:
+            self._persist_purchase_bundle_locked(order, order_items, purchase_events)
+
+    def _persist_purchase_bundle_locked(
+        self,
+        order: Order,
+        order_items: list[OrderItem],
+        purchase_events: list[Event],
+    ):
+        try:
+            self.writer.begin()
+            for order_item in order_items:
+                order_item.inventory_item_id = self._allocate_inventory_item(
+                    product_id=int(order_item.product_id), sold_at=order.created_at
+                )
+
+            self.writer.upsert(
+                table="orders",
+                data=[order],
+                conflict_keys=["order_id"],
+                commit=False,
+            )
+            self.writer.upsert(
+                table="order_items",
+                data=order_items,
+                conflict_keys=["id"],
+                commit=False,
+            )
+            self.writer.upsert(
+                table="events",
+                data=purchase_events,
+                conflict_keys=["id"],
+                commit=False,
+            )
+            self.writer.commit()
+        except Exception:
+            self.writer.rollback()
+            raise
 
     async def _simulate_purchases(self):
         """Generates and writes a new purchase transaction, the primary simulation event."""
@@ -218,12 +342,7 @@ class TheLookECommSimulator:
                 postal_code=self.args.postal_code,
                 fake=self.fake,
             )
-            await asyncio.to_thread(
-                self.writer.upsert,
-                table="users",
-                data=[random_user],
-                conflict_keys=["id"],
-            )
+            await asyncio.to_thread(self._upsert_users_locked, [random_user])
 
         # Generate the order and its associated events
         order = Order.new(user=random_user, fake=self.fake)
@@ -231,9 +350,6 @@ class TheLookECommSimulator:
         purchase_events = []
         for _ in range(order.num_of_item):
             order_item = OrderItem.new(order=order, fake=self.fake)
-            order_item.inventory_item_id = self._allocate_inventory_item(
-                product_id=int(order_item.product_id), sold_at=order.created_at
-            )
             purchase_events.extend(
                 Event.new(
                     user=random_user,
@@ -243,40 +359,43 @@ class TheLookECommSimulator:
                 )
             )
             order_items.append(order_item)
+        self._assign_runtime_ids(order, order_items, purchase_events)
 
-        # Write all purchase-related data concurrently
-        await asyncio.gather(
-            asyncio.to_thread(
-                self.writer.upsert,
-                table="orders",
-                data=[order],
-                conflict_keys=["order_id"],
-            ),
-            asyncio.to_thread(
-                self.writer.upsert,
-                table="order_items",
-                data=order_items,
-                conflict_keys=["id"],
-            ),
-            asyncio.to_thread(
-                self.writer.upsert,
-                table="events",
-                data=purchase_events,
-                conflict_keys=["id"],
-            ),
-            asyncio.to_thread(
-                self.kafka_writer.send,
-                data=purchase_events,
-                table="events",
-            ),
+        await asyncio.to_thread(
+            self._persist_purchase_bundle,
+            order,
+            order_items,
+            purchase_events,
         )
+        if self.clickstream_publisher:
+            for event in purchase_events:
+                await asyncio.to_thread(self.clickstream_publisher.publish, event)
 
     def _simulate_order_update(self):
         """Synchronous helper containing the logic for updating an order. To be run in a thread."""
+        with self._db_lock:
+            return self._simulate_order_update_locked()
+
+    def _simulate_order_update_locked(self):
+        updatable_statuses = [
+            OrderStatus.PROCESSING.value,
+            OrderStatus.SHIPPED.value,
+            OrderStatus.COMPLETE.value,
+        ]
         random_order_list = self.writer.select(
             table="orders",
-            where_clause="status in ('Processing', 'Shipped', 'Complete')",
-            order_by="case when status = 'Complete' then 0 when status = 'Shipped' then 1 else 2 end, RANDOM()",
+            where_clause="status in (:processing_status, :shipped_status, :complete_status)",
+            where_params={
+                "processing_status": OrderStatus.PROCESSING.value,
+                "shipped_status": OrderStatus.SHIPPED.value,
+                "complete_status": OrderStatus.COMPLETE.value,
+            },
+            order_by=(
+                "case "
+                f"when status = '{OrderStatus.COMPLETE.value}' then 0 "
+                f"when status = '{OrderStatus.SHIPPED.value}' then 1 "
+                "else 2 end, RANDOM()"
+            ),
             limit=1,
         )
         if not random_order_list:
@@ -324,16 +443,36 @@ class TheLookECommSimulator:
                         fake=self.fake,
                     )
                 )
+        for event in random_events:
+            event.id = self.event_ids.allocate()
 
-        self.writer.upsert(
-            table="orders", data=[random_order], conflict_keys=["order_id"]
-        )
-        self.writer.upsert(
-            table="order_items", data=updated_items, conflict_keys=["id"]
-        )
-        if random_events:
-            self.writer.upsert(table="events", data=random_events, conflict_keys=["id"])
-            self.kafka_writer.send(data=random_events, table="events")
+        try:
+            self.writer.upsert(
+                table="orders",
+                data=[random_order],
+                conflict_keys=["order_id"],
+                commit=False,
+            )
+            self.writer.upsert(
+                table="order_items",
+                data=updated_items,
+                conflict_keys=["id"],
+                commit=False,
+            )
+            if random_events:
+                self.writer.upsert(
+                    table="events",
+                    data=random_events,
+                    conflict_keys=["id"],
+                    commit=False,
+                )
+            self.writer.commit()
+        except Exception:
+            self.writer.rollback()
+            raise
+        if random_events and self.clickstream_publisher:
+            for event in random_events:
+                self.clickstream_publisher.publish(event)
 
     async def _simulate_side_tasks(self):
         """Runs secondary simulation events based on their respective probabilities."""
@@ -350,13 +489,9 @@ class TheLookECommSimulator:
                 postal_code=self.args.postal_code,
                 fake=self.fake,
             )
+            new_user.id = self.user_ids.allocate()
             side_tasks.append(
-                asyncio.to_thread(
-                    self.writer.upsert,
-                    table="users",
-                    data=[new_user],
-                    conflict_keys=["id"],
-                )
+                asyncio.to_thread(self._upsert_users_locked, [new_user])
             )
 
         if (
@@ -364,26 +499,14 @@ class TheLookECommSimulator:
             and random.random() < self.args.ghost_create_prob
         ):
             logging.info("Creating a ghost event...")
-            ghost_events = Event.new(
+            ghost_events = self._sanitize_browsing_events(Event.new(
                 user=None,
                 order_item=None,
                 event_category=EventCategory.GHOST.value,
                 fake=self.fake,
-            )
+            ))
             side_tasks.append(
-                asyncio.to_thread(
-                    self.writer.upsert,
-                    table="events",
-                    data=ghost_events,
-                    conflict_keys=["id"],
-                )
-            )
-            side_tasks.append(
-                asyncio.to_thread(
-                    self.kafka_writer.send,
-                    data=ghost_events,
-                    table="events",
-                )
+                asyncio.to_thread(self._upsert_events_locked, ghost_events)
             )
 
         if (
@@ -396,6 +519,14 @@ class TheLookECommSimulator:
 
         if side_tasks:
             await asyncio.gather(*side_tasks)
+
+    def _upsert_users_locked(self, users: list[User]):
+        with self._db_lock:
+            self.writer.upsert(table="users", data=users, conflict_keys=["id"])
+
+    def _upsert_events_locked(self, events: list[Event]):
+        with self._db_lock:
+            self.writer.upsert(table="events", data=events, conflict_keys=["id"])
 
     async def run(self):
         """The main simulation loop, which orchestrates primary and side tasks."""
@@ -440,8 +571,6 @@ class TheLookECommSimulator:
         logging.info("Closing database connection...")
         if self.writer.conn and not self.writer.conn.closed:
             await asyncio.to_thread(self.writer.close)
-        if self.kafka_writer:
-            await asyncio.to_thread(self.kafka_writer.close)
         logging.info("Database connection closed.")
 
 
@@ -482,6 +611,7 @@ def main():
     parser.add_argument("--ghost-create-prob", type=float, default=0.2, help="Probability of generating a ghost event. Default is 0.2. Set to 0 to disable.")
     ## --- Database Arguments ---
     parser.add_argument("--db-host", default="localhost", help="Database host.")
+    parser.add_argument("--db-port", type=int, default=5432, help="Database port.")
     parser.add_argument("--db-user", default="db_user", help="Database user.")
     parser.add_argument("--db-password", default="db_password", help="Database password.")
     parser.add_argument("--db-name", default="fh_dev", help="Database name.")
@@ -490,10 +620,14 @@ def main():
     ## --- Kafka Arguments ---
     parser.add_argument("--bootstrap-servers", type=str, default="localhost:9092", help="Bootstrap server addresses.")
     parser.add_argument("--topic-prefix", type=str, default="ecomm", help="Kafka topic prefix.")
-    parser.add_argument("--topic", type=str, default=None, help="Specific Kafka topic to use. Overrides prefix.table naming.")
+    parser.add_argument("--publish-clickstream", action="store_true", help="Publish generated events to Pub/Sub.")
+    parser.add_argument("--gcp-project-id", type=str, default=os.getenv("GCP_PROJECT_ID"), help="GCP project for Pub/Sub publishing.")
+    parser.add_argument("--clickstream-topic", type=str, default="clickstream", help="Pub/Sub topic for clickstream events.")
     # fmt: on
 
     args = parser.parse_args()
+    if args.publish_clickstream and not args.gcp_project_id:
+        raise ValueError("gcp-project-id is required when --publish-clickstream is enabled.")
     logging.info(args)
 
     try:
