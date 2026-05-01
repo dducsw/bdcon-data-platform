@@ -1,2 +1,14 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Enforce LF for scripts and code (better for Docker/K8s environments)
+*.py text eol=lf
+*.csv text eol=lf
+*.md text eol=lf
+Makefile text eol=lf
+*.sh text eol=lf
+
+# Enforce CRLF for Windows-specific scripts
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+

@@ -21,6 +21,7 @@ class DataWriter:
         host: str,
         db_name: str,
         schema: str,
+        port: int = 5432,
         batch_size: int = 1000,
         echo: bool = False,
     ):
@@ -30,6 +31,7 @@ class DataWriter:
         self._user = user
         self._password = password
         self._host = host
+        self._port = port
         self._db_name = db_name
         self.conn: Optional[Connection] = None
         self._connect()
@@ -42,6 +44,7 @@ class DataWriter:
         where_params: Optional[tuple] = None,
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
+        for_update: bool = False,
     ):
         self._ensure_connection()
 
@@ -53,6 +56,8 @@ class DataWriter:
             sql += f" ORDER BY {order_by}"
         if limit is not None:
             sql += f" LIMIT {limit}"
+        if for_update:
+            sql += " FOR UPDATE"
 
         result = self.conn.execute(text(sql), where_params or {})
         rows = result.mappings().all()
@@ -64,6 +69,7 @@ class DataWriter:
         data: List[Union[dict, object]],
         conflict_keys: List[str],
         update_fields: Optional[List[str]] = None,
+        commit: bool = True,
     ):
         if not data:
             logging.info(f"[{table}] No rows to insert.")
@@ -94,14 +100,16 @@ class DataWriter:
                 with self.conn.connection.cursor() as cur:
                     execute_values(cur, sql, values)
 
-            self.conn.connection.commit()
+            if commit:
+                self.conn.connection.commit()
             logging.info(
                 f"[{table}] Inserted {len(rows)} rows in batches of {self.batch_size}."
             )
 
         except Exception as e:
             logging.error(f"Upsert failed for {table}: {e}")
-            self.conn.connection.rollback()
+            if commit:
+                self.conn.connection.rollback()
             raise
 
     def get_all_tables(self):
@@ -117,18 +125,37 @@ class DataWriter:
         if self.conn:
             self.conn.close()
 
+    def commit(self):
+        self._ensure_connection()
+        self.conn.connection.commit()
+
+    def rollback(self):
+        self._ensure_connection()
+        self.conn.connection.rollback()
+
+    def begin(self):
+        self._ensure_connection()
+        raw_conn = self.conn.connection
+        raw_conn.rollback()
+        with raw_conn.cursor() as cur:
+            cur.execute("BEGIN")
+
     def _ddl_stmts(self):
+        additional_ddls = get_additional_ddls(self.schema)
         return {
+            "distribution_centers": additional_ddls["distribution_centers"],
+            "products": additional_ddls["products"],
             "users": User.ddl(self.schema),
+            "inventory_items": additional_ddls["inventory_items"],
             "orders": Order.ddl(self.schema),
             "order_items": OrderItem.ddl(self.schema),
             "events": Event.ddl(self.schema),
-            **get_additional_ddls(self.schema),
+            "heartbeat": additional_ddls["heartbeat"],
         }
 
     def _connect(self):
         engine = create_engine(
-            f"postgresql+psycopg2://{self._user}:{self._password}@{self._host}/{self._db_name}",
+            f"postgresql+psycopg2://{self._user}:{self._password}@{self._host}:{self._port}/{self._db_name}",
             echo=self.echo,
         )
         self.conn = engine.connect()

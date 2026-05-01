@@ -350,6 +350,33 @@ services:
     networks:
       - docker-dev-platform
 
+  # Manual Data Generator Service (writes directly to DB)
+  datagen-manual:
+    build:
+      context: ../datagen/thelook-ecomm
+      dockerfile: Dockerfile
+    container_name: ggcloud_datagen
+    profiles:
+      - manual
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    command: >
+      python generator.py
+      --db-host postgres
+      --db-user postgres
+      --db-password postgres
+      --db-name thelook_ecommerce
+      --db-schema demo
+      --avg-qps 5
+      --init-num-users 1000
+      --max-iter -1
+    restart: "no"
+    networks:
+      - docker-dev-platform
+
   #   doris-fe:
   #   image: apache/doris:fe-3.1.3
   #   container_name: doris-fe

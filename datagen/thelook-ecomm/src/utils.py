@@ -26,11 +26,15 @@ def generate_from_csv(file_name: str) -> List[dict]:
     return records
 
 
-def get_product_map(file_nmae: str = "products.csv"):
+_LOCATION_DATA = generate_from_csv("world_pop.csv")
+
+
+def get_product_map(file_name: str = "products.csv"):
     prod_map = {}
-    for product in generate_from_csv(file_nmae):
-        prod_map[product["id"]] = {
-            "retail_price": product["retail_price"],
+    for product in generate_from_csv(file_name):
+        product_id = int(product["id"])
+        prod_map[product_id] = {
+            "retail_price": float(product.get("retail_price") or 0),
             "department": product["department"].lower(),
             "category": product["category"].lower(),
         }
@@ -42,7 +46,7 @@ def get_location(
     country: str = "*",
     state: str = "*",
     postal_code: str = "*",
-    location_data: list = generate_from_csv("world_pop.csv"),
+    location_data: list | None = None,
 ) -> dict:
     """
     Returns random location based off specified distribution
@@ -52,36 +56,37 @@ def get_location(
     postal_code = '*' OR postal_code = '95060' OR postal_code={'94117':.75,'95060':.25}
     type checking is used to provide flexibility of inputs to function (ie. can be dict with proportions, or could be single string value)
     """
+    location_rows = [dict(row) for row in (location_data or _LOCATION_DATA)]
     universe = []
     if postal_code != "*":
         if isinstance(postal_code, str):
             universe += list(
-                filter(lambda row: row["postal_code"] == postal_code, location_data)
+                filter(lambda row: row["postal_code"] == postal_code, location_rows)
             )
         elif isinstance(postal_code, dict):
             universe += list(
                 filter(
-                    lambda row: row["postal_code"] in postal_code.keys(), location_data
+                    lambda row: row["postal_code"] in postal_code.keys(), location_rows
                 )
             )
     if state != "*":
         if isinstance(state, str):
-            universe += list(filter(lambda row: row["state"] == state, location_data))
+            universe += list(filter(lambda row: row["state"] == state, location_rows))
         elif isinstance(state, dict):
             universe += list(
-                filter(lambda row: row["state"] in state.keys(), location_data)
+                filter(lambda row: row["state"] in state.keys(), location_rows)
             )
     if country != "*":
         if isinstance(country, str):
             universe += list(
-                filter(lambda row: row["country"] == country, location_data)
+                filter(lambda row: row["country"] == country, location_rows)
             )
         elif isinstance(country, dict):
             universe += list(
-                filter(lambda row: row["country"] in country.keys(), location_data)
+                filter(lambda row: row["country"] in country.keys(), location_rows)
             )
     if len(universe) == 0:
-        universe = location_data
+        universe = location_rows
 
     total_pop = sum([int(loc["population"]) for loc in universe])
 
