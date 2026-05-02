@@ -1,0 +1,170 @@
+# ====================================================================
+# ConfigMap — Spark MinIO Test Script
+# Mount vào driver/executor tại /opt/spark/work-dir/
+# Tránh phụ thuộc S3A JAR khi load mainApplicationFile
+# ====================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-minio-test-script
+  namespace: data-platform
+data:
+  spark_hive_minio_test.py: |
+    import os
+    from pyspark.sql import SparkSession
+
+    def main():
+        MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+        MINIO_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+        MINIO_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+        HIVE_METASTORE_URI = os.getenv("HIVE_METASTORE_URI", "thrift://hive-metastore:9083")
+        S3_BUCKET = "datalake"
+
+        print("Initializing SparkSession...")
+        spark = (
+            SparkSession.builder
+            .appName("Test-Spark-Hive-MinIO")
+            .config("hive.metastore.uris", HIVE_METASTORE_URI)
+            .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+            .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
+            .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
+            .config("spark.hadoop.fs.s3a.path.style.access", "true")
+            .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+            .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+            .config("spark.hadoop.fs.s3a.aws.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider")
+            .enableHiveSupport()
+            .getOrCreate()
+        )
+        spark.sparkContext.setLogLevel("WARN")
+
+        try:
+            print("SparkSession OK!")
+
+            print("--- Test 1: Create Database via Hive Metastore ---")
+            spark.sql("CREATE DATABASE IF NOT EXISTS test_db LOCATION 's3a://datalake/test_db/'")
+            spark.sql("USE test_db")
+
+            print("--- Test 2: Write data to MinIO ---")
+            data = [("Alice", 25, "Data Engineer"),
+                    ("Bob", 30, "Data Scientist"),
+                    ("Charlie", 28, "DevOps")]
+            columns = ["Name", "Age", "Role"]
+            df = spark.createDataFrame(data, columns)
+            df.show()
+
+            table_path = f"s3a://{S3_BUCKET}/test_db/spark_minio_test"
+            spark.sql("DROP TABLE IF EXISTS spark_minio_test")
+            df.write.mode("overwrite").format("parquet") \
+              .option("path", table_path).saveAsTable("spark_minio_test")
+            print("Write OK!")
+
+            print("--- Test 3: Read back ---")
+            spark.sql("SELECT * FROM spark_minio_test WHERE Age > 25").show()
+            print("ALL TESTS PASSED!")
+
+        except Exception as e:
+            print("ERROR:", str(e))
+            raise
+        finally:
+            spark.stop()
+
+    if __name__ == "__main__":
+        main()
+---
+# ====================================================================
+# SparkApplication — MinIO Integration Test (fixed)
+#
+# Fixes:
+#   1. Script được mount từ ConfigMap → không cần S3A JAR để load file
+#   2. Image spark:3.5.0 với hadoop-aws bundled (bitnami có hadoop-aws)
+#   3. coreLimit >= driver.cores để pass LimitRange validation
+#   4. AWS_ env vars inject đúng từ spark-minio-secret
+#   5. hadoopConf để cấu hình S3A trực tiếp (thay vì sparkConf)
+#
+# Submit:  kubectl apply -f pipelines/spark_test_job.yaml
+# Watch:   kubectl get sparkapplication -n data-platform -w
+# Logs:    kubectl logs -n data-platform spark-minio-test-job-driver -f
+# Delete:  kubectl delete -f pipelines/spark_test_job.yaml
+# ====================================================================
+apiVersion: "sparkoperator.k8s.io/v1beta2"
+kind: SparkApplication
+metadata:
+  name: spark-minio-test-job
+  namespace: data-platform
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+
+  # apache/spark image has standard entrypoint for Spark operator
+  image: "apache/spark:3.5.0"
+  imagePullPolicy: IfNotPresent
+
+  # Script mount từ ConfigMap → path local:/// không cần S3A để load
+  mainApplicationFile: "s3a://datalake/scripts/spark_hive_minio_test.py"
+
+  sparkVersion: "3.5.0"
+
+  restartPolicy:
+    type: Never
+
+  # ── Hadoop/S3A Config ────────────────────────────────────────────────
+  hadoopConf:
+    "fs.s3a.endpoint": "http://minio:9000"
+    "fs.s3a.path.style.access": "true"
+    "fs.s3a.connection.ssl.enabled": "false"
+    "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "fs.s3a.access.key": "minioadmin"
+    "fs.s3a.secret.key": "minioadmin"
+
+  sparkConf:
+    "spark.sql.warehouse.dir": "s3a://datalake/warehouse"
+    "spark.sql.catalogImplementation": "hive"
+    "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
+    "spark.driver.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.executor.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    # Download S3/MinIO dependencies automatically
+    "spark.jars.packages": "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+    # Fix Ivy cache path for Spark Operator running spark-submit
+    "spark.jars.ivy": "/tmp/.ivy2"
+
+  # ── Driver ─────────────────────────────────────────────────────────
+  driver:
+    cores: 1
+    coreLimit: "1200m"      # >= cores (avoid LimitRange 500m default limit rejection)
+    memory: "1g"
+    serviceAccount: spark-driver
+    labels:
+      version: "3.5.0"
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_ACCESS_KEY
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_SECRET_KEY
+
+  # ── Executor ────────────────────────────────────────────────────────
+  executor:
+    cores: 1
+    coreLimit: "1200m"
+    instances: 1
+    memory: "1g"
+    labels:
+      version: "3.5.0"
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_ACCESS_KEY
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_SECRET_KEY
