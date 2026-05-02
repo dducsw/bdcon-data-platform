@@ -1,0 +1,45 @@
+# ====================================================================
+# PostgreSQL DB Initialization Job
+# Ensures: catalog_metastore_db, hive_metastore_db, airflow, superset
+# Idempotent: Checks if DB exists before creating.
+# ====================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-db-init
+  namespace: data-platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: db-init
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              # Sanitize password
+              CLEAN_PASS=$(echo $POSTGRES_PASSWORD | tr -d '\r\n')
+              export PGPASSWORD=$CLEAN_PASS
+              
+              DATABASES="catalog_metastore_db hive_metastore_db airflow superset"
+              
+              for db in $DATABASES; do
+                echo "Checking if database '$db' exists..."
+                EXISTS=$(psql -h postgres -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$db'")
+                if [ "$EXISTS" = "1" ]; then
+                  echo "Database '$db' already exists."
+                else
+                  echo "Creating database '$db'..."
+                  psql -h postgres -U postgres -c "CREATE DATABASE $db"
+                fi
+              done
+              echo "Database initialization complete."
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+      restartPolicy: OnFailure
+  backoffLimit: 4

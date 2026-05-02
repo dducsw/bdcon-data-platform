@@ -14,6 +14,83 @@ server:
   log:
     trino:
       level: INFO
+  etcFiles:
+    kafka/click_events.json: |
+      {
+        "tableName": "click_events",
+        "schemaName": "default",
+        "topicName": "click_events",
+        "message": {
+          "dataFormat": "json",
+          "fields": [
+            {
+              "name": "id",
+              "mapping": "id",
+              "type": "BIGINT"
+            },
+            {
+              "name": "user_id",
+              "mapping": "user_id",
+              "type": "BIGINT"
+            },
+            {
+              "name": "sequence_number",
+              "mapping": "sequence_number",
+              "type": "INTEGER"
+            },
+            {
+              "name": "session_id",
+              "mapping": "session_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ip_address",
+              "mapping": "ip_address",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "city",
+              "mapping": "city",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "state",
+              "mapping": "state",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "postal_code",
+              "mapping": "postal_code",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "browser",
+              "mapping": "browser",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "traffic_source",
+              "mapping": "traffic_source",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "uri",
+              "mapping": "uri",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "event_type",
+              "mapping": "event_type",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "created_at",
+              "mapping": "created_at",
+              "type": "VARCHAR"
+            }
+          ]
+        }
+      }
 
 # Inject secrets via Environment Variables from K8s Secret
 env:
@@ -107,3 +184,8 @@ additionalCatalogs:
     s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
     s3.path-style-access=true
     s3.region=us-east-1
+  kafka: |
+    connector.name=kafka
+    kafka.nodes=data-platform-kafka-bootstrap:9092
+    kafka.table-description-dir=/etc/trino/kafka
+    kafka.hide-internal-columns=false

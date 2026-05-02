@@ -43,8 +43,6 @@ spec:
         - key: "cloud.google.com/gke-spot"
           operator: "Exists"
           effect: "NoSchedule"
-      nodeSelector:
-        role: infra
       terminationGracePeriodSeconds: 15
       containers:
         - name: minio

@@ -32,36 +32,39 @@ data:
             .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
             .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
             .config("spark.hadoop.fs.s3a.aws.credentials.provider",
-                    "org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider")
+                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+            # Iceberg Config
+            .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+            .config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")
+            .config("spark.sql.catalog.spark_catalog.type", "hive")
+            .config("spark.sql.catalog.catalog_iceberg", "org.apache.iceberg.spark.SparkCatalog")
+            .config("spark.sql.catalog.catalog_iceberg.type", "hive")
+            .config("spark.sql.catalog.catalog_iceberg.uri", HIVE_METASTORE_URI)
+            .config("spark.sql.catalog.catalog_iceberg.warehouse", f"s3a://{S3_BUCKET}/warehouse")
             .enableHiveSupport()
             .getOrCreate()
         )
         spark.sparkContext.setLogLevel("WARN")
 
         try:
-            print("SparkSession OK!")
-
-            print("--- Test 1: Create Database via Hive Metastore ---")
-            spark.sql("CREATE DATABASE IF NOT EXISTS test_db LOCATION 's3a://datalake/test_db/'")
-            spark.sql("USE test_db")
-
-            print("--- Test 2: Write data to MinIO ---")
-            data = [("Alice", 25, "Data Engineer"),
-                    ("Bob", 30, "Data Scientist"),
+            print("🚀 SparkSession with Iceberg Initialized!")
+            print("\n--- Test 1: Create Iceberg Database & Table ---")
+            spark.sql("CREATE DATABASE IF NOT EXISTS catalog_iceberg.test_db")
+            
+            print("\n--- Test 2: Write Iceberg data to MinIO ---")
+            data = [("Alice", 25, "Data Engineer"), 
+                    ("Bob", 30, "Data Scientist"), 
                     ("Charlie", 28, "DevOps")]
             columns = ["Name", "Age", "Role"]
             df = spark.createDataFrame(data, columns)
-            df.show()
 
-            table_path = f"s3a://{S3_BUCKET}/test_db/spark_minio_test"
-            spark.sql("DROP TABLE IF EXISTS spark_minio_test")
-            df.write.mode("overwrite").format("parquet") \
-              .option("path", table_path).saveAsTable("spark_minio_test")
-            print("Write OK!")
+            table_name = "catalog_iceberg.test_db.spark_iceberg_test"
+            df.writeTo(table_name).createOrReplace()
+            print("Write Iceberg OK!")
 
-            print("--- Test 3: Read back ---")
-            spark.sql("SELECT * FROM spark_minio_test WHERE Age > 25").show()
-            print("ALL TESTS PASSED!")
+            print("\n--- Test 3: Read back Iceberg table ---")
+            spark.sql(f"SELECT * FROM {table_name} WHERE Age > 25").show()
+            print("ALL ICEBERG TESTS PASSED!")
 
         except Exception as e:
             print("ERROR:", str(e))
@@ -102,7 +105,7 @@ spec:
   imagePullPolicy: IfNotPresent
 
   # Script mount từ ConfigMap → path local:/// không cần S3A để load
-  mainApplicationFile: "s3a://datalake/scripts/spark_hive_minio_test.py"
+  mainApplicationFile: "local:///opt/spark/scripts/spark_hive_minio_test.py"
 
   sparkVersion: "3.5.0"
 
@@ -117,6 +120,8 @@ spec:
     "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
     "fs.s3a.access.key": "minioadmin"
     "fs.s3a.secret.key": "minioadmin"
+    "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+
 
   sparkConf:
     "spark.sql.warehouse.dir": "s3a://datalake/warehouse"
@@ -124,8 +129,17 @@ spec:
     "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
     "spark.driver.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
     "spark.executor.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
-    # Download S3/MinIO dependencies automatically
-    "spark.jars.packages": "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+    # Iceberg and S3 dependencies
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+    # Iceberg Extensions
+    "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    # Catalog Configuration
+    "spark.sql.catalog.spark_catalog": "org.apache.iceberg.spark.SparkSessionCatalog"
+    "spark.sql.catalog.spark_catalog.type": "hive"
+    "spark.sql.catalog.catalog_iceberg": "org.apache.iceberg.spark.SparkCatalog"
+    "spark.sql.catalog.catalog_iceberg.type": "hive"
+    "spark.sql.catalog.catalog_iceberg.uri": "thrift://hive-metastore:9083"
+    "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://datalake/warehouse"
     # Fix Ivy cache path for Spark Operator running spark-submit
     "spark.jars.ivy": "/tmp/.ivy2"
 
@@ -148,6 +162,18 @@ spec:
           secretKeyRef:
             name: spark-minio-secret
             key: MINIO_SECRET_KEY
+    # Pod Template is more reliable for volumes when webhook is disabled
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-driver
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: spark-minio-test-script
 
   # ── Executor ────────────────────────────────────────────────────────
   executor:
@@ -168,3 +194,14 @@ spec:
           secretKeyRef:
             name: spark-minio-secret
             key: MINIO_SECRET_KEY
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-executor
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: spark-minio-test-script

@@ -18,6 +18,7 @@ resources:
   - data-services/postgres/init-configmap.yaml
   - data-services/postgres/statefulset.yaml
   - data-services/postgres/service.yaml
+  - data-services/postgres/job-db-init.yaml
   - data-services/minio/statefulset.yaml
   - data-services/minio/service.yaml
   - data-services/minio/service-headless.yaml

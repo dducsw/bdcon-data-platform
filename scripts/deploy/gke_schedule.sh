@@ -14,7 +14,7 @@ ACTION="${1:-}"
 NAMESPACE="data-platform"
 
 if [ "$ACTION" == "start" ]; then
-  echo "🚀 [$(date '+%H:%M:%S')] Khởi động Data Platform (14:00)..."
+  echo "[$(date '+%H:%M:%S')] Khởi động Data Platform (14:00)..."
 
   # --- Step 1: Stateful storage layer ---
   echo "  [1/5] Starting storage layer: PostgreSQL + MinIO (4 nodes)..."
@@ -49,12 +49,12 @@ if [ "$ACTION" == "start" ]; then
   # Airflow KubernetesExecutor will spin up pods on demand, but we scale webserver/scheduler
   kubectl scale deployment airflow-webserver airflow-scheduler --replicas=1 -n "$NAMESPACE"
 
-  echo "✅ Lệnh scale đã hoàn tất."
+  echo "Lệnh scale đã hoàn tất."
 
 elif [ "$ACTION" == "stop" ]; then
-  echo "💤 [$(date '+%H:%M:%S')] Tắt Data Platform (22:00)..."
+  echo "[$(date '+%H:%M:%S')] Tat Data Platform (22:00)..."
 
-  echo "  Dừng Airflow & UI..."
+  echo "  Dung Airflow & UI..."
   kubectl scale deployment airflow-webserver airflow-scheduler superset --replicas=0 -n "$NAMESPACE"
 
   echo "  Dừng Trino (via Helm scale down)..."
@@ -63,7 +63,7 @@ elif [ "$ACTION" == "stop" ]; then
     --reuse-values \
     --set server.workers=0
 
-  echo "  Dừng Kafka..."
+  echo "  Dung Kafka..."
   kubectl scale kafkanodepool broker-pool --replicas=0 -n "$NAMESPACE"
   sleep 10
   kubectl scale kafkanodepool controller-pool --replicas=0 -n "$NAMESPACE"
@@ -75,7 +75,7 @@ elif [ "$ACTION" == "stop" ]; then
   echo "  Dừng storage layer..."
   kubectl scale statefulset minio postgres --replicas=0 -n "$NAMESPACE"
 
-  echo "✅ Tất cả workloads đã được scale về 0."
+  echo "Tất cả workloads đã được scale về 0."
 
 else
   echo "Usage: $0 [start|stop]"

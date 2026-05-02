@@ -50,11 +50,17 @@ spec:
             - sh
             - -c
             - |
+              # Sanitize credentials (remove trailing newlines/carriage returns)
+              CLEAN_PG_USER=$(echo $POSTGRES_USER | tr -d '\r\n')
+              CLEAN_PG_PASS=$(echo $POSTGRES_PASSWORD | tr -d '\r\n')
+              CLEAN_MINIO_USER=$(echo $MINIO_ACCESS_KEY | tr -d '\r\n')
+              CLEAN_MINIO_PASS=$(echo $MINIO_SECRET_KEY | tr -d '\r\n')
+
               cp /tmp/conf-template/gravitino.conf.template /tmp/conf/gravitino.conf
-              sed -i "s|__POSTGRES_USER__|$POSTGRES_USER|g" /tmp/conf/gravitino.conf
-              sed -i "s|__POSTGRES_PASSWORD__|$POSTGRES_PASSWORD|g" /tmp/conf/gravitino.conf
-              sed -i "s|__MINIO_ACCESS_KEY__|$MINIO_ACCESS_KEY|g" /tmp/conf/gravitino.conf
-              sed -i "s|__MINIO_SECRET_KEY__|$MINIO_SECRET_KEY|g" /tmp/conf/gravitino.conf
+              sed -i "s|__POSTGRES_USER__|$CLEAN_PG_USER|g" /tmp/conf/gravitino.conf
+              sed -i "s|__POSTGRES_PASSWORD__|$CLEAN_PG_PASS|g" /tmp/conf/gravitino.conf
+              sed -i "s|__MINIO_ACCESS_KEY__|$CLEAN_MINIO_USER|g" /tmp/conf/gravitino.conf
+              sed -i "s|__MINIO_SECRET_KEY__|$CLEAN_MINIO_PASS|g" /tmp/conf/gravitino.conf
               cp /tmp/conf-template/core-site.xml /tmp/conf/core-site.xml
               echo "Config rendered successfully."
           env:

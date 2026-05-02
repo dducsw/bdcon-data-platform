@@ -27,6 +27,15 @@ def main():
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") # MinIO chạy HTTP nội bộ
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         
+        # 3. Cấu hình Apache Iceberg
+        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
+        .config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")
+        .config("spark.sql.catalog.spark_catalog.type", "hive")
+        .config("spark.sql.catalog.catalog_iceberg", "org.apache.iceberg.spark.SparkCatalog")
+        .config("spark.sql.catalog.catalog_iceberg.type", "hive")
+        .config("spark.sql.catalog.catalog_iceberg.uri", HIVE_METASTORE_URI)
+        .config("spark.sql.catalog.catalog_iceberg.warehouse", f"s3a://{S3_BUCKET}/warehouse")
+        
         # Kích hoạt Hive
         .enableHiveSupport()
         .getOrCreate()
@@ -36,36 +45,30 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
 
     try:
-        print("✅ SparkSession Initialized!")
+        print("✅ SparkSession with Iceberg Initialized!")
         
         # --- TEST 1: HIVE METASTORE X MINIO ---
-        print("\n--- Test 1: Tạo Database & Bảng qua Hive Metastore ---")
-        spark.sql("CREATE DATABASE IF NOT EXISTS test_db")
-        spark.sql("USE test_db")
+        print("\n--- Test 1: Tạo Database & Bảng Iceberg ---")
+        # Sử dụng catalog_iceberg để tạo database
+        spark.sql("CREATE DATABASE IF NOT EXISTS catalog_iceberg.test_db")
         
-        # --- TEST 2: GHI DỮ LIỆU ---
-        print("\n--- Test 2: Ghi dữ liệu mẫu xuống MinIO ---")
+        # --- TEST 2: GHI DỮ LIỆU ICEBERG ---
+        print("\n--- Test 2: Ghi dữ liệu Iceberg xuống MinIO ---")
         data = [("Alice", 25, "Data Engineer"), 
                 ("Bob", 30, "Data Scientist"), 
                 ("Charlie", 28, "DevOps")]
         columns = ["Name", "Age", "Role"]
         
         df = spark.createDataFrame(data, columns)
-        print("Dữ liệu đầu vào:")
-        df.show()
-
-        table_name = "spark_minio_test"
-        table_path = f"s3a://{S3_BUCKET}/test_db/{table_name}"
         
-        print(f"Đang ghi Parquet vào: {table_path} ...")
-        # Ghi đè bảng nếu đã tồn tại
-        spark.sql(f"DROP TABLE IF EXISTS {table_name}")
-        df.write.mode("overwrite") \
-          .format("parquet") \
-          .option("path", table_path) \
-          .saveAsTable(table_name)
+        # Tên bảng Iceberg đầy đủ (Catalog.Database.Table)
+        table_name = "catalog_iceberg.test_db.spark_iceberg_test"
+        
+        print(f"Đang ghi Iceberg vào: {table_name} ...")
+        # Ghi bằng phương thức v2 writeTo
+        df.writeTo(table_name).createOrReplace()
           
-        print("✅ Ghi thành công!")
+        print("✅ Ghi Iceberg thành công!")
 
         # --- TEST 3: ĐỌC DỮ LIỆU ---
         print("\n--- Test 3: Truy vấn lại dữ liệu bằng Spark SQL (đọc từ Hive -> MinIO) ---")

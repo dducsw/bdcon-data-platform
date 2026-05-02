@@ -50,9 +50,13 @@ spec:
             - sh
             - -c
             - |
+              # Sanitize credentials
+              CLEAN_PG_USER=$(echo $POSTGRES_USER | tr -d '\r\n')
+              CLEAN_PG_PASS=$(echo $POSTGRES_PASSWORD | tr -d '\r\n')
+
               cp /tmp/conf-template/hive-site.xml.template /tmp/conf/hive-site.xml
-              sed -i "s|__POSTGRES_USER__|$POSTGRES_USER|g" /tmp/conf/hive-site.xml
-              sed -i "s|__POSTGRES_PASSWORD__|$POSTGRES_PASSWORD|g" /tmp/conf/hive-site.xml
+              sed -i "s|__POSTGRES_USER__|$CLEAN_PG_USER|g" /tmp/conf/hive-site.xml
+              sed -i "s|__POSTGRES_PASSWORD__|$CLEAN_PG_PASS|g" /tmp/conf/hive-site.xml
               echo "hive-site.xml rendered successfully."
           env:
             - name: POSTGRES_USER
@@ -77,6 +81,13 @@ spec:
             - /bin/bash
             - -c
             - |
+              # Auto-initialize schema if not exists
+              echo "Checking Hive Metastore schema status..."
+              /opt/hive/bin/schematool -dbType postgres -info || {
+                echo "Schema not found. Initializing Hive Metastore schema..."
+                /opt/hive/bin/schematool -dbType postgres -initSchema
+              }
+              echo "Starting Hive Metastore Server..."
               /opt/hive/bin/hive --service metastore
           ports:
             - name: thrift
