@@ -1,0 +1,100 @@
+engine,query_name,run_type,run_number,query_id,status,query_time_seconds,throughput_qps,peak_memory_bytes,spill_bytes,cpu_time_millis,result_hash,row_count,error_message
+trino,query1,measured,1,20260502_094337_00138_ujgnk,success,1.526,0.655162,7679757,0,435,200428bfb5199070f46b63451dc31e5b,100,
+trino,query2,measured,1,20260502_094338_00139_ujgnk,success,1.539,0.649641,538419,0,945,36acc6c65aff09c66df1cf2e392882d6,2513,
+trino,query3,measured,1,20260502_094340_00140_ujgnk,success,0.359,2.788615,627855,0,128,9d48c4752035fe6de668d455543a490b,61,
+trino,query4,measured,1,20260502_094340_00141_ujgnk,success,5.104,0.195917,103286464,0,4153,327e17dc996692fb72fe337a73fb881f,8,
+trino,query5,measured,1,20260502_094345_00142_ujgnk,failed,0.03,33.056868,0,0,0,d751713988987e9331980363e24189ce,0,"line 29:79: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', 'TO', '[', '||', <predicate>"
+trino,query6,measured,1,20260502_094345_00143_ujgnk,success,0.837,1.195423,8485846,0,302,d751713988987e9331980363e24189ce,0,
+trino,query7,measured,1,20260502_094346_00144_ujgnk,success,1.255,0.796799,3762366,0,596,08001aeae3023448b9191ddc4eb61741,100,
+trino,query8,measured,1,20260502_094347_00145_ujgnk,success,0.786,1.271513,3205423,0,304,d751713988987e9331980363e24189ce,0,
+trino,query9,measured,1,20260502_094348_00146_ujgnk,success,2.332,0.428858,22643701,0,2312,9fc5c24e84acbd45c7335bbe093cc819,1,
+trino,query10,measured,1,20260502_094350_00147_ujgnk,success,1.663,0.601244,201332720,0,1282,9c396da6ec6a2d2fcbc2ef057747ee44,3,
+trino,query11,measured,1,20260502_094352_00148_ujgnk,success,3.386,0.295319,45686682,0,1995,94b6e1fa571542fd2ff3011a4513bf7e,87,
+trino,query12,measured,1,20260502_094355_00149_ujgnk,failed,0.03,33.305246,0,0,0,d751713988987e9331980363e24189ce,0,"line 19:70: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', 'TO', '[', '||', <predicate>"
+trino,query13,measured,1,20260502_094355_00150_ujgnk,success,1.544,0.647585,167984756,0,1240,f3c2e9f6f042542f39d07fd844322565,1,
+trino,query14,measured,1,20260502_094404_00152_ujgnk,success,13.712,0.072927,39059165,0,3752,2111f5cc6375f032915f9f7b16d3c852,100,
+trino,query15,measured,1,20260502_094411_00153_ujgnk,success,0.638,1.567892,12416129,0,216,8c1ce893ca417f9ab5a141902c1847cf,100,
+trino,query16,measured,1,20260502_094411_00154_ujgnk,success,0.669,1.495303,92693395,0,420,e6849e0ca348bccec2d07ff87660e340,1,
+trino,query17,measured,1,20260502_094412_00155_ujgnk,success,1.635,0.611529,4985795,0,469,d751713988987e9331980363e24189ce,0,
+trino,query18,measured,1,20260502_094414_00156_ujgnk,success,1.963,0.509302,104057134,0,1270,31e773fcf9683c2ba954dcef743c7e45,100,
+trino,query19,measured,1,20260502_094415_00157_ujgnk,success,0.57,1.752949,665583,0,205,82e9abebf0da636fe6ef18cd0d6f89f6,79,
+trino,query20,measured,1,20260502_094416_00158_ujgnk,failed,0.047,21.390557,0,0,0,d751713988987e9331980363e24189ce,0,"line 19:70: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', 'TO', '[', '||', <predicate>"
+trino,query21,measured,1,20260502_094416_00159_ujgnk,failed,0.029,34.436448,0,0,0,d751713988987e9331980363e24189ce,0,"line 10:110: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', '[', '||', <predicate>"
+trino,query22,measured,1,20260502_094416_00160_ujgnk,success,7.367,0.135735,42403176,0,7559,9d3284f22a0a442b85d9137abbe694f8,100,
+trino,query23,measured,1,20260502_094433_00162_ujgnk,success,20.249,0.049385,444910183,0,10381,d751713988987e9331980363e24189ce,0,
+trino,query24,measured,1,20260502_094445_00164_ujgnk,success,1.781,0.561545,22313533,0,137,d751713988987e9331980363e24189ce,0,
+trino,query25,measured,1,20260502_094446_00165_ujgnk,success,1.533,0.652374,3491457,0,484,fcb5ee28fc4171cef54a5a3551f747e7,1,
+trino,query26,measured,1,20260502_094447_00166_ujgnk,success,0.551,1.814675,3827737,0,250,4e034270878c1c4f115e528c3ce54a75,100,
+trino,query27,measured,1,20260502_094448_00167_ujgnk,success,0.832,1.202603,3824794,0,449,98ffe25b0e34fabd2add88cf292f36fa,100,
+trino,query28,measured,1,20260502_094448_00168_ujgnk,success,3.049,0.328,75172573,0,3573,90a990c9d593ee8ab44dbb2f40c79b1e,1,
+trino,query29,measured,1,20260502_094452_00169_ujgnk,success,1.292,0.774089,1591182,0,363,9a9b3bd1207736db4d7d4454772b600f,1,
+trino,query30,measured,1,20260502_094453_00170_ujgnk,success,0.833,1.200126,2952382,0,401,ef51e1a46a5b367b91b6daade90653bf,90,
+trino,query31,measured,1,20260502_094454_00171_ujgnk,success,3.265,0.306293,33653903,0,2698,5e980dc7f68bd026476bdf7b2c8f2a81,54,
+trino,query32,measured,1,20260502_094457_00172_ujgnk,failed,0.009,113.725535,0,0,0,d751713988987e9331980363e24189ce,0,"line 10:66: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', 'TO', '[', '||', <predicate>"
+trino,query33,measured,1,20260502_094457_00173_ujgnk,success,2.448,0.408526,18920166,0,1549,da453c41802595375908aa276093f512,100,
+trino,query34,measured,1,20260502_094459_00174_ujgnk,success,0.523,1.912883,13372870,0,117,d751713988987e9331980363e24189ce,0,
+trino,query35,measured,1,20260502_094500_00175_ujgnk,success,1.186,0.843292,6471816,0,720,529d6af8d6c651b031c9aa7c15509aaa,100,
+trino,query36,measured,1,20260502_094501_00176_ujgnk,success,0.798,1.252966,3778337,0,433,b91dee92e7e41030c3999d4d2d57e966,100,
+trino,query37,measured,1,20260502_094502_00177_ujgnk,failed,0.034,29.610766,0,0,0,d751713988987e9331980363e24189ce,0,"line 14:70: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', 'TO', '[', '||', <predicate>"
+trino,query38,measured,1,20260502_094502_00178_ujgnk,success,2.549,0.392241,34791349,0,2066,f66687329cf385501b2155d7e7dec2f9,1,
+trino,query39,measured,1,20260502_094506_00180_ujgnk,success,2.554,0.391609,1644323,0,425,33cad6cd0dfbe24f96f868cde42c6f62,2,
+trino,query40,measured,1,20260502_094507_00181_ujgnk,failed,0.008,121.206244,0,0,0,d751713988987e9331980363e24189ce,0,"line 8:120: mismatched input ')'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AS', 'AT', 'OR', '[', '||', <predicate>"
+trino,query41,measured,1,20260502_094507_00182_ujgnk,success,0.15,6.649197,131424,0,3,d751713988987e9331980363e24189ce,0,
+trino,query42,measured,1,20260502_094507_00183_ujgnk,success,0.272,3.674648,289734,0,92,03278d0c88fce4bdc9bda53436733de8,10,
+trino,query43,measured,1,20260502_094507_00184_ujgnk,success,0.292,3.42914,281777,0,128,a37d6132c95821850fc8b79e3bbeccd5,6,
+trino,query44,measured,1,20260502_094508_00185_ujgnk,success,1.457,0.686299,32139952,0,1190,0a5e46fa193fe7e070cdc3c0db62cb2b,11,
+trino,query45,measured,1,20260502_094509_00186_ujgnk,success,0.976,1.024119,8978863,0,258,00e87badad8496e589034cd90a65c6aa,14,
+trino,query46,measured,1,20260502_094510_00187_ujgnk,success,0.845,1.183978,16528907,0,465,679b6feaa8b49dc446e13a6861ffbe80,100,
+trino,query47,measured,1,20260502_094511_00188_ujgnk,success,7.596,0.131642,134741687,0,8605,d751713988987e9331980363e24189ce,0,
+trino,query48,measured,1,20260502_094519_00189_ujgnk,success,1.704,0.586733,174837723,0,1307,77eccae640cb3621f4c7ac454b3b07aa,1,
+trino,query49,measured,1,20260502_094520_00190_ujgnk,failed,0.064,15.721021,0,0,0,d751713988987e9331980363e24189ce,0,"line 18:26: Unknown type: DEC(15, 4)"
+trino,query50,measured,1,20260502_094520_00191_ujgnk,success,0.425,2.35305,805850,0,222,8ba0c61f157f09e534f23deed17a97af,6,
+trino,query51,measured,1,20260502_094521_00192_ujgnk,success,2.422,0.412831,36039212,0,2713,bc6abc9e05fcc7c468c2cd2d0ff7d4ac,100,
+trino,query52,measured,1,20260502_094523_00193_ujgnk,success,0.247,4.043098,289717,0,96,cd7ad7ab6177115c8a488e23a782b3b7,100,
+trino,query53,measured,1,20260502_094524_00194_ujgnk,success,1.555,0.643251,65210201,0,765,3e7c0d737a78961b7f7c6d46185c13ee,100,
+trino,query54,measured,1,20260502_094525_00195_ujgnk,success,2.467,0.405278,139136296,0,1477,d751713988987e9331980363e24189ce,0,
+trino,query55,measured,1,20260502_094528_00196_ujgnk,success,0.298,3.355573,288885,0,113,8a932766c9caac0d380e7f73f6b5108f,100,
+trino,query56,measured,1,20260502_094528_00197_ujgnk,success,1.517,0.659041,4912040,0,694,d751713988987e9331980363e24189ce,0,
+trino,query57,measured,1,20260502_094529_00198_ujgnk,success,2.994,0.334018,41388673,0,2739,d751713988987e9331980363e24189ce,0,
+trino,query58,measured,1,20260502_094532_00199_ujgnk,success,1.582,0.63197,1311544,0,1183,d751713988987e9331980363e24189ce,0,
+trino,query59,measured,1,20260502_094534_00200_ujgnk,success,1.417,0.705544,2703487,0,661,02a8bc370dc1b59cab45d60457cb7c18,100,
+trino,query60,measured,1,20260502_094535_00201_ujgnk,success,1.494,0.669299,4967923,0,862,3e299a159cb8585233805de43fe6de07,100,
+trino,query61,measured,1,20260502_094537_00202_ujgnk,success,0.71,1.409179,963410,0,77,f7eba9a37ca8e04e165bd7ed34e21f72,1,
+trino,query62,measured,1,20260502_094538_00203_ujgnk,success,0.398,2.514864,532423,0,180,1d2795760dd73486d41b8f355951b573,100,
+trino,query63,measured,1,20260502_094538_00204_ujgnk,success,0.77,1.299244,65112560,0,344,2f42d3f0b52a5f5022249f0105c05f62,100,
+trino,query64,measured,1,20260502_094539_00205_ujgnk,success,8.782,0.113875,42471976,0,3117,d751713988987e9331980363e24189ce,0,
+trino,query65,measured,1,20260502_094548_00206_ujgnk,success,2.51,0.398339,9662356,0,989,045327bcbd244e214cdc06f0a896f857,100,
+trino,query66,measured,1,20260502_094550_00207_ujgnk,success,1.916,0.521826,3096972,0,261,d751713988987e9331980363e24189ce,0,
+trino,query67,measured,1,20260502_094552_00209_ujgnk,success,18.601,0.05376,316292670,0,14009,c291a1329360e9c7aa149698d4b3f145,100,
+trino,query68,measured,1,20260502_094611_00212_ujgnk,success,1.085,0.922058,8588156,0,422,80a957b94e31ceb4a55abe67be006953,100,
+trino,query69,measured,1,20260502_094612_00213_ujgnk,success,1.195,0.836537,120451042,0,890,d751713988987e9331980363e24189ce,0,
+trino,query70,measured,1,20260502_094613_00214_ujgnk,success,0.88,1.136798,537444,0,451,3a1cc19477b139444ffb86bf53b04f99,3,
+trino,query71,measured,1,20260502_094614_00215_ujgnk,success,0.864,1.157913,784549,0,449,d751713988987e9331980363e24189ce,0,
+trino,query72,measured,1,20260502_094615_00216_ujgnk,success,1.068,0.935958,35438332,0,432,d751713988987e9331980363e24189ce,0,
+trino,query73,measured,1,20260502_094616_00217_ujgnk,success,0.291,3.433236,13370750,0,70,d751713988987e9331980363e24189ce,0,
+trino,query74,measured,1,20260502_094616_00218_ujgnk,success,2.891,0.34596,27356635,0,1671,a64df8ac3276e37b2dd40ace4ef24883,100,
+trino,query75,measured,1,20260502_094619_00219_ujgnk,failed,1.268,0.788889,0,0,0,d751713988987e9331980363e24189ce,0,HTTP Error 500: Server Error
+trino,query76,measured,1,,failed,0.019,53.746681,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query77,measured,1,,failed,0.027,37.304663,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query78,measured,1,,failed,0.014,72.757963,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query79,measured,1,,failed,0.007,144.927537,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query80,measured,1,,failed,0.022,45.608994,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query81,measured,1,,failed,0.027,36.927349,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query82,measured,1,,failed,0.016,60.730835,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query83,measured,1,,failed,0.017,58.663413,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query84,measured,1,,failed,0.015,66.734291,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query85,measured,1,,failed,0.017,58.783073,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query86,measured,1,,failed,0.006,167.143025,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query87,measured,1,,failed,0.007,145.889561,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query88,measured,1,,failed,0.018,56.384406,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query89,measured,1,,failed,0.015,67.962023,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query90,measured,1,,failed,0.008,130.852373,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query91,measured,1,,failed,0.007,133.352892,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query92,measured,1,,failed,0.023,43.403155,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query93,measured,1,,failed,0.003,366.448019,0,0,0,d751713988987e9331980363e24189ce,0,Remote end closed connection without response
+trino,query94,measured,1,,failed,0.011,89.771442,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query95,measured,1,,failed,0.015,68.790931,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query96,measured,1,,failed,0.02,48.854843,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query97,measured,1,,failed,0.014,70.525841,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query98,measured,1,,failed,0.013,74.747354,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>
+trino,query99,measured,1,,failed,0.014,72.288286,0,0,0,d751713988987e9331980363e24189ce,0,<urlopen error [WinError 10053] An established connection was aborted by the software in your host machine>

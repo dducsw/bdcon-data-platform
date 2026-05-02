@@ -1,0 +1,52 @@
+apiVersion: "sparkoperator.k8s.io/v1beta2"
+kind: SparkApplication
+metadata:
+  name: bronze-ingest-distribution-centers
+  namespace: data-platform
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  image: "apache/spark:3.5.0"
+  mainApplicationFile: "local:///opt/spark/work-dir/bronze_jdbc_ingest.py"
+  arguments:
+    - "--source-table"
+    - "distribution_centers"
+    - "--target-table"
+    - "catalog_iceberg.bronze.distribution_centers"
+    - "--schema-ddl"
+    - "id BIGINT, name STRING, latitude DOUBLE, longitude DOUBLE, load_at TIMESTAMP"
+  sparkVersion: "3.5.0"
+  restartPolicy:
+    type: OnFailure
+  hadoopConf:
+    "fs.s3a.endpoint": "http://minio:9000"
+    "fs.s3a.path.style.access": "true"
+    "fs.s3a.connection.ssl.enabled": "false"
+    "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+  sparkConf:
+    "spark.sql.catalog.catalog_iceberg": "org.apache.iceberg.spark.SparkCatalog"
+    "spark.sql.catalog.catalog_iceberg.type": "rest"
+    "spark.sql.catalog.catalog_iceberg.uri": "http://iceberg-rest:8181"
+    "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://datalake/warehouse"
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,org.postgresql:postgresql:42.6.0"
+  driver:
+    cores: 1
+    memory: "512m"
+    serviceAccount: spark-driver
+    env:
+      - name: DB_HOST
+        value: "postgres"
+      - name: AWS_ACCESS_KEY_ID
+        value: "minioadmin"
+      - name: AWS_SECRET_ACCESS_KEY
+        value: "minioadmin123"
+  executor:
+    cores: 1
+    instances: 1
+    memory: "1g"
+    env:
+      - name: AWS_ACCESS_KEY_ID
+        value: "minioadmin"
+      - name: AWS_SECRET_ACCESS_KEY
+        value: "minioadmin123"

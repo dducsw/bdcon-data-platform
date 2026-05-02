@@ -1,0 +1,2 @@
+engine,total_queries,success_count,failure_count,success_rate,total_runtime_seconds,median_query_time_seconds,avg_throughput_qps,max_peak_memory_bytes,total_spill_bytes,total_cpu_time_millis
+trino,99,66,33,0.6667,163.873,1.494,1.127584,444910183,0,98564
