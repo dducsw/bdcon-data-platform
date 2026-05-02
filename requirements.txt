@@ -2,3 +2,7 @@ kafka-python
 redis
 pandas
 tqdm
+pyhive
+thrift
+sasl
+thrift_sasl

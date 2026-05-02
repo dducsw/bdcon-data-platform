@@ -7,13 +7,13 @@ variable "project_id" {
 variable "region" {
   description = "GCP region for the cluster and network resources"
   type        = string
-  default     = "asia-southeast1" # Singapore
+  default     = "asia-east2" # Hong Kong
 }
 
 variable "zone" {
   description = "GCP zone for the zonal GKE cluster"
   type        = string
-  default     = "asia-southeast1-a"
+  default     = "asia-east2-a"
 }
 
 variable "cluster_name" {

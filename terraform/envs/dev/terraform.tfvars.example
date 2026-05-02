@@ -5,6 +5,6 @@
 # ====================================================================
 
 project_id   = "<YOUR_GCP_PROJECT_ID>"
-region       = "asia-east1"
-zone         = "asia-east1-a"
+region       = "asia-east2"
+zone         = "asia-east2-a"
 cluster_name = "data-platform-cluster"

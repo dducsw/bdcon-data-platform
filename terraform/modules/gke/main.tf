@@ -68,7 +68,7 @@ resource "google_container_node_pool" "infra_pool" {
 
   autoscaling {
     min_node_count = 0 
-    max_node_count = 0
+    max_node_count = 1
   }
 
   initial_node_count = 0
@@ -119,7 +119,7 @@ resource "google_container_node_pool" "compute_pool" {
 
   autoscaling {
     min_node_count = 0
-    max_node_count = 0
+    max_node_count = 1
   }
 
   initial_node_count = 0
@@ -168,7 +168,7 @@ resource "google_container_node_pool" "query_pool" {
 
   autoscaling {
     min_node_count = 0
-    max_node_count = 0
+    max_node_count = 1
   }
 
   initial_node_count = 0
