@@ -60,6 +60,46 @@ def execute_statement(sql: str, env: dict) -> None:
         next_uri = payload.get("nextUri")
 
 
+def get_columns(table: str, env: dict) -> list[tuple[str, str]]:
+    """Fetches column names and types for a table from information_schema."""
+    sql = f"""
+        SELECT column_name, data_type 
+        FROM {env['TPCDS_SOURCE_CATALOG']}.information_schema.columns 
+        WHERE table_schema = '{env['TPCDS_SOURCE_SCHEMA']}' 
+          AND table_name = '{table}'
+        ORDER BY ordinal_position
+    """
+    request = urllib.request.Request(
+        url=f"{env['TRINO_BASE_URL']}/v1/statement",
+        data=sql.encode("utf-8"),
+        headers={
+            "X-Trino-User": env["TRINO_USER"],
+            "X-Trino-Catalog": env["TRINO_CATALOG"],
+            "X-Trino-Schema": env["TRINO_SCHEMA"],
+            "X-Trino-Source": f"{env['TRINO_SOURCE']}-prepare",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    rows = []
+    next_uri = payload.get("nextUri")
+    if payload.get("data"):
+        rows.extend(payload["data"])
+
+    while next_uri:
+        with urllib.request.urlopen(next_uri, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("error"):
+            raise RuntimeError(payload["error"].get("message", "Unknown Trino error"))
+        if payload.get("data"):
+            rows.extend(payload["data"])
+        next_uri = payload.get("nextUri")
+    
+    return [(r[0], r[1]) for r in rows]
+
+
 def main() -> None:
     env = load_env()
     create_schema = (
@@ -68,12 +108,26 @@ def main() -> None:
     execute_statement(create_schema, env)
 
     for table in TPCDS_TABLES:
+        print(f"Analyzing {table} schema...")
+        columns = get_columns(table, env)
+        
+        select_items = []
+        for col_name, data_type in columns:
+            # Trim string-like columns to avoid trailing space issues in TPC-DS benchmarks
+            # while keeping the standard query templates unchanged.
+            if "varchar" in data_type.lower() or "char" in data_type.lower():
+                select_items.append(f"trim({col_name}) AS {col_name}")
+            else:
+                select_items.append(col_name)
+        
+        select_clause = ", ".join(select_items)
         drop_sql = f"DROP TABLE IF EXISTS {env['TRINO_CATALOG']}.{env['TRINO_SCHEMA']}.{table}"
         create_sql = (
             f"CREATE TABLE {env['TRINO_CATALOG']}.{env['TRINO_SCHEMA']}.{table} AS "
-            f"SELECT * FROM {env['TPCDS_SOURCE_CATALOG']}.{env['TPCDS_SOURCE_SCHEMA']}.{table}"
+            f"SELECT {select_clause} FROM {env['TPCDS_SOURCE_CATALOG']}.{env['TPCDS_SOURCE_SCHEMA']}.{table}"
         )
-        print(f"Materializing {table}...")
+        
+        print(f"Materializing {table} (with trimming)...")
         execute_statement(drop_sql, env)
         try:
             execute_statement(create_sql, env)
@@ -82,7 +136,7 @@ def main() -> None:
 
     print(
         f"TPC-DS dataset from {env['TPCDS_SOURCE_CATALOG']}.{env['TPCDS_SOURCE_SCHEMA']} "
-        f"is ready in Iceberg schema {env['TRINO_CATALOG']}.{env['TRINO_SCHEMA']}."
+        f"is ready in Iceberg schema {env['TRINO_CATALOG']}.{env['TRINO_SCHEMA']} (all strings trimmed)."
     )
 
 
