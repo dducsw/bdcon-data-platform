@@ -1,32 +1,32 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres
+  name: postgres-source
   namespace: data-platform
 spec:
   ports:
     - port: 5432
       targetPort: 5432
   selector:
-    app: postgres
+    app: postgres-source
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
+  name: postgres-source
   namespace: data-platform
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres
+      app: postgres-source
   template:
     metadata:
       labels:
-        app: postgres
+        app: postgres-source
     spec:
       containers:
-        - name: postgres
+        - name: postgres-source
           image: postgres:15-alpine
           env:
             - name: POSTGRES_DB
@@ -44,3 +44,5 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+
+

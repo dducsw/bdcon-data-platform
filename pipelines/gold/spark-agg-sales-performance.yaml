@@ -17,27 +17,55 @@ spec:
     "fs.s3a.path.style.access": "true"
     "fs.s3a.connection.ssl.enabled": "false"
     "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "fs.s3a.access.key": "minioadmin"
+    "fs.s3a.secret.key": "minioadmin"
+    "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
   sparkConf:
+    "spark.sql.warehouse.dir": "s3a://datalake/warehouse"
+    "spark.sql.catalogImplementation": "hive"
+    "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
+    "spark.driver.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.executor.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+    "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    "spark.sql.catalog.spark_catalog": "org.apache.iceberg.spark.SparkSessionCatalog"
+    "spark.sql.catalog.spark_catalog.type": "hive"
     "spark.sql.catalog.catalog_iceberg": "org.apache.iceberg.spark.SparkCatalog"
-    "spark.sql.catalog.catalog_iceberg.type": "rest"
-    "spark.sql.catalog.catalog_iceberg.uri": "http://iceberg-rest:8181"
+    "spark.sql.catalog.catalog_iceberg.type": "hive"
+    "spark.sql.catalog.catalog_iceberg.uri": "thrift://hive-metastore:9083"
     "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://datalake/warehouse"
-    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4"
+    "spark.jars.ivy": "/tmp/.ivy2"
   driver:
     cores: 1
+    coreLimit: "1200m"
     memory: "1g"
     serviceAccount: spark-driver
     env:
       - name: AWS_ACCESS_KEY_ID
-        value: "minioadmin"
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_ACCESS_KEY
       - name: AWS_SECRET_ACCESS_KEY
-        value: "minioadmin123"
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_SECRET_KEY
   executor:
     cores: 1
+    coreLimit: "1200m"
     instances: 1
     memory: "1g"
     env:
       - name: AWS_ACCESS_KEY_ID
-        value: "minioadmin"
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_ACCESS_KEY
       - name: AWS_SECRET_ACCESS_KEY
-        value: "minioadmin123"
+        valueFrom:
+          secretKeyRef:
+            name: spark-minio-secret
+            key: MINIO_SECRET_KEY
+
+

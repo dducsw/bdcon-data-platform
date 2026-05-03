@@ -8,7 +8,7 @@ spec:
   pythonVersion: "3"
   mode: cluster
   image: "apache/spark:3.5.0"
-  mainApplicationFile: "local:///opt/spark/work-dir/bronze_jdbc_ingest.py"
+  mainApplicationFile: "local:///opt/spark/scripts/bronze_jdbc_ingest.py"
   arguments:
     - "--source-table"
     - "users"
@@ -25,35 +25,109 @@ spec:
     "fs.s3a.path.style.access": "true"
     "fs.s3a.connection.ssl.enabled": "false"
     "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "fs.s3a.access.key": "minioadmin"
+    "fs.s3a.secret.key": "minioadmin"
+    "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    # Fast upload: stream trực tiếp lên S3/MinIO, tránh staging trên disk gây hang
+    "fs.s3a.fast.upload": "true"
+    "fs.s3a.fast.upload.buffer": "bytebuffer"
+    "fs.s3a.multipart.size": "67108864"
+    "fs.s3a.multipart.threshold": "67108864"
+    # Connection timeout để fail fast thay vì hang mãi
+    "fs.s3a.connection.timeout": "30000"
+    "fs.s3a.connection.establish.timeout": "5000"
+    "fs.s3a.attempts.maximum": "3"
+    # Magic committer: tránh staging committer gây deadlock với MinIO
+    "fs.s3a.committer.name": "magic"
+    "fs.s3a.committer.magic.enabled": "true"
   sparkConf:
+    "spark.sql.warehouse.dir": "s3a://iceberg/lakehouse"
+    "spark.sql.catalogImplementation": "hive"
+    "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
+    "spark.driver.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.executor.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.postgresql:postgresql:42.6.0"
+    "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    "spark.sql.catalog.spark_catalog": "org.apache.iceberg.spark.SparkSessionCatalog"
+    "spark.sql.catalog.spark_catalog.type": "hive"
     "spark.sql.catalog.catalog_iceberg": "org.apache.iceberg.spark.SparkCatalog"
-    "spark.sql.catalog.catalog_iceberg.type": "rest"
-    "spark.sql.catalog.catalog_iceberg.uri": "http://iceberg-rest:8181"
-    "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://datalake/warehouse"
-    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,org.postgresql:postgresql:42.6.0"
+    "spark.sql.catalog.catalog_iceberg.type": "hive"
+    "spark.sql.catalog.catalog_iceberg.uri": "thrift://hive-metastore:9083"
+    "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://iceberg/lakehouse"
+    "spark.jars.ivy": "/tmp/.ivy2"
+    # Magic committer cho Iceberg + S3A (MinIO)
+    "spark.sql.sources.commitProtocolClass": "org.apache.spark.internal.io.cloud.PathOutputCommitProtocol"
+    "spark.sql.parquet.output.committer.class": "org.apache.spark.internal.io.cloud.BindingParquetOutputCommitter"
+    # Giảm shuffle partitions cho dataset nhỏ (tránh tạo quá nhiều file nhỏ)
+    "spark.sql.shuffle.partitions": "4"
+    # Task timeout để fail fast
+    "spark.network.timeout": "300s"
+    "spark.sql.broadcastTimeout": "300"
   driver:
     cores: 1
-    memory: "512m"
+    coreLimit: "1200m"
+    memory: "1g"
     serviceAccount: spark-driver
-    env:
-      - name: DB_HOST
-        value: "postgres"
-      - name: DB_NAME
-        value: "thelook_db"
-      - name: DB_USER
-        value: "db_user"
-      - name: DB_PASSWORD
-        value: "db_password"
-      - name: AWS_ACCESS_KEY_ID
-        value: "minioadmin"
-      - name: AWS_SECRET_ACCESS_KEY
-        value: "minioadmin123"
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-driver
+            env:
+              - name: DB_HOST
+                value: "postgres-source"
+              - name: DB_NAME
+                value: "thelook_db"
+              - name: DB_USER
+                value: "db_user"
+              - name: DB_PASSWORD
+                value: "db_password"
+              - name: PYTHONUNBUFFERED
+                value: "1"
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: bronze-ingest-scripts
   executor:
     cores: 1
+    coreLimit: "1200m"
     instances: 1
     memory: "1g"
-    env:
-      - name: AWS_ACCESS_KEY_ID
-        value: "minioadmin"
-      - name: AWS_SECRET_ACCESS_KEY
-        value: "minioadmin123"
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-executor
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: bronze-ingest-scripts
+
+

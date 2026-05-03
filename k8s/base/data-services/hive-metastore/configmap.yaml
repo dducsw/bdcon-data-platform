@@ -45,6 +45,36 @@ data:
         <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
       </property>
       <property>
+        <name>fs.s3a.access.key</name>
+        <value>minioadmin</value>
+      </property>
+      <property>
+        <name>fs.s3a.secret.key</name>
+        <value>minioadmin</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+      </property>
+      <!-- Fast upload: tránh buffer disk staging gây hang khi ghi -->
+      <property>
+        <name>fs.s3a.fast.upload</name>
+        <value>true</value>
+      </property>
+      <!-- Connection timeouts: fail fast thay vì hang mãi -->
+      <property>
+        <name>fs.s3a.connection.timeout</name>
+        <value>30000</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.establish.timeout</name>
+        <value>5000</value>
+      </property>
+      <property>
+        <name>fs.s3a.attempts.maximum</name>
+        <value>3</value>
+      </property>
+      <property>
         <name>datanucleus.schema.autoCreateAll</name>
         <value>false</value>
       </property>

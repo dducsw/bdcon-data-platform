@@ -46,10 +46,10 @@ kubectl apply -f pipelines/ingestion/kafka.yaml
 Sử dụng port-forward để `datagen` (chạy tại máy local) có thể ghi dữ liệu vào K8s:
 ```bash
 # Terminal 1: Forward Postgres
-kubectl port-forward svc/postgres 5433:5432 -n data-platform
+kubectl port-forward svc/postgres-source 5433:5432 -n data-platform
 
 # Terminal 2: Forward Kafka
-kubectl port-forward svc/my-cluster-kafka-bootstrap 9092:9092 -n data-platform
+kubectl port-forward svc/data-platform-kafka-kafka-bootstrap 9092:9092 -n data-platform
 ```
 
 ### Bước 3: Thực thi các tầng Pipeline (Medallion)

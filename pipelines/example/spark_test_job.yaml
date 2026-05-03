@@ -205,3 +205,4 @@ spec:
           - name: script-volume
             configMap:
               name: spark-minio-test-script
+
