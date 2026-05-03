@@ -1,0 +1,10 @@
+query1.sql
+query2.sql
+query3.sql
+query4.sql
+query5.sql
+query6.sql
+query7.sql
+query8.sql
+query9.sql
+query10.sql
