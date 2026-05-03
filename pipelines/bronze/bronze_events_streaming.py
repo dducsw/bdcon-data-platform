@@ -1,4 +1,6 @@
 import os
+import sys
+import time
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, current_timestamp
 from pyspark.sql.types import (
@@ -24,6 +26,20 @@ EVENT_SCHEMA = StructType([
     StructField("event_type", StringType(), True),
     StructField("created_at", StringType(), True),
 ])
+
+def log(msg):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}")
+    sys.stdout.flush()
+
+def process_batch(df, batch_id, table_name):
+    count = df.count()
+    if count > 0:
+        log(f"Processing micro-batch {batch_id}: {count} rows -> {table_name}")
+        # Ghi d? li?u v?o bảng Iceberg
+        df.writeTo(table_name).append()
+    else:
+        log(f"Batch {batch_id} is empty. Skipping.")
 
 def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: str) -> None:
     kafka_bootstrap_servers = os.getenv(
@@ -78,11 +94,11 @@ def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: st
 
     query = (
         df_transformed.writeStream
-        .format("iceberg")
+        .foreachBatch(lambda df, batch_id: process_batch(df, batch_id, table_name))
         .outputMode("append")
         .trigger(availableNow=True)
         .option("checkpointLocation", checkpoint_location)
-        .toTable(table_name)
+        .start()
     )
 
     query.awaitTermination()

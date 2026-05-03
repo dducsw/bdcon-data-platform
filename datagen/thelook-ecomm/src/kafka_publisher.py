@@ -17,7 +17,7 @@ class KafkaEventPublisher:
             retries=5,
             acks='all'
         )
-        self.topic = f"{self.topic_prefix}.events"
+        self.topic = self.topic_prefix
         logging.info(f"Kafka publisher ready. Target topic: {self.topic}")
 
     def publish(self, event: Event):
