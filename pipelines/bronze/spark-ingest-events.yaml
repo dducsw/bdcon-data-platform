@@ -8,7 +8,7 @@ spec:
   pythonVersion: "3"
   mode: cluster
   image: "apache/spark:3.5.0"
-  mainApplicationFile: "local:///opt/spark/work-dir/bronze_events_streaming.py"
+  mainApplicationFile: "local:///opt/spark/scripts/bronze_events_streaming.py"
   sparkVersion: "3.5.0"
   restartPolicy:
     type: OnFailure
@@ -47,35 +47,63 @@ spec:
     coreLimit: "1200m"
     memory: "1g"
     serviceAccount: spark-driver
-    env:
-      - name: KAFKA_BOOTSTRAP_SERVERS
-        value: "data-platform-kafka-kafka-bootstrap:9092"
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_ACCESS_KEY
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_SECRET_KEY
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-driver
+            env:
+              - name: KAFKA_BOOTSTRAP_SERVERS
+                value: "data-platform-kafka-kafka-bootstrap:9092"
+              - name: KAFKA_TOPIC
+                value: "click-events"
+              - name: PYTHONUNBUFFERED
+                value: "1"
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: bronze-ingest-scripts
   executor:
     cores: 1
     coreLimit: "1200m"
     instances: 1
     memory: "1g"
-    env:
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_ACCESS_KEY
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_SECRET_KEY
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-executor
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: bronze-ingest-scripts
 
 
 

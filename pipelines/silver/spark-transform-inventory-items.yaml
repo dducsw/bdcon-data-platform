@@ -1,14 +1,14 @@
 apiVersion: "sparkoperator.k8s.io/v1beta2"
 kind: SparkApplication
 metadata:
-  name: gold-agg-user-statistics
+  name: silver-transform-inventory-items
   namespace: data-platform
 spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
   image: "apache/spark:3.5.0"
-  mainApplicationFile: "local:///opt/spark/scripts/gold_user_statistics.py"
+  mainApplicationFile: "local:///opt/spark/scripts/silver_inventory_items.py"
   sparkVersion: "3.5.0"
   restartPolicy:
     type: OnFailure
@@ -73,7 +73,7 @@ spec:
         volumes:
           - name: script-volume
             configMap:
-              name: gold-ingest-scripts
+              name: silver-ingest-scripts
   executor:
     cores: 1
     coreLimit: "1200m"
@@ -102,6 +102,4 @@ spec:
         volumes:
           - name: script-volume
             configMap:
-              name: gold-ingest-scripts
-
-
+              name: silver-ingest-scripts

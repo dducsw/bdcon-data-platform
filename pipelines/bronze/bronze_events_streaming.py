@@ -26,10 +26,15 @@ EVENT_SCHEMA = StructType([
 ])
 
 def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: str) -> None:
-    kafka_bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap:9092")
-    checkpoint_location = f"s3a://datalake/checkpoints/{table_name.replace('.', '_')}"
+    kafka_bootstrap_servers = os.getenv(
+        "KAFKA_BOOTSTRAP_SERVERS",
+        "data-platform-kafka-kafka-bootstrap:9092",
+    )
+    checkpoint_location = f"s3a://iceberg/checkpoints/{table_name.replace('.', '_')}"
 
     print(f"Streaming from {topic_name} to {table_name}...")
+
+    spark.sql("CREATE DATABASE IF NOT EXISTS catalog_iceberg.bronze")
 
     # Create table if not exists
     spark.sql(f"""
@@ -99,15 +104,17 @@ if __name__ == "__main__":
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", 
-                "org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider")
+        .config(
+            "spark.hadoop.fs.s3a.aws.credentials.provider",
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        )
         .enableHiveSupport()
         .getOrCreate()
     )
 
     spark.sparkContext.setLogLevel("ERROR")
 
-    topic = os.getenv("KAFKA_TOPIC", "click_events")
+    topic = os.getenv("KAFKA_TOPIC", "click-events")
     target_table = "catalog_iceberg.bronze.events"
     
     stream_kafka_to_iceberg(spark, topic, target_table)
