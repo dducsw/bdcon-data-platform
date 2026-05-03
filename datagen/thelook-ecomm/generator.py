@@ -27,7 +27,6 @@ from src.db_writer import DataWriter
 from src.id_allocator import IdAllocator
 from src.models import User, Order, OrderItem, Event, OrderStatus, EventCategory, PRODUCT_MAP
 from src.utils import generate_from_csv
-from src.clickstream.event_publisher import ClickstreamEventPublisher
 
 logging.basicConfig(
     level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s"
@@ -62,10 +61,11 @@ class TheLookECommSimulator:
         self.event_ids = IdAllocator()
         self._db_lock = threading.RLock()
         self.clickstream_publisher = None
-        if args.publish_clickstream:
-            self.clickstream_publisher = ClickstreamEventPublisher(
-                project_id=args.gcp_project_id,
-                topic_name=args.clickstream_topic,
+        if args.publish_kafka:
+            from src.kafka_publisher import KafkaEventPublisher
+            self.clickstream_publisher = KafkaEventPublisher(
+                bootstrap_servers=args.bootstrap_servers,
+                topic_prefix=args.topic_prefix,
             )
 
     def _build_product_lookup(self, products: list[dict]) -> dict[int, dict]:
@@ -567,11 +567,13 @@ class TheLookECommSimulator:
         logging.info("Simulation loop has finished.")
 
     async def close(self):
-        """Gracefully closes the database connection."""
+        """Gracefully closes the database connection and publisher."""
         logging.info("Closing database connection...")
         if self.writer.conn and not self.writer.conn.closed:
             await asyncio.to_thread(self.writer.close)
-        logging.info("Database connection closed.")
+        if self.clickstream_publisher and hasattr(self.clickstream_publisher, 'close'):
+            self.clickstream_publisher.close()
+        logging.info("Shutdown complete.")
 
 
 async def run_simulation(args: argparse.Namespace):
@@ -620,14 +622,10 @@ def main():
     ## --- Kafka Arguments ---
     parser.add_argument("--bootstrap-servers", type=str, default="localhost:9092", help="Bootstrap server addresses.")
     parser.add_argument("--topic-prefix", type=str, default="ecomm", help="Kafka topic prefix.")
-    parser.add_argument("--publish-clickstream", action="store_true", help="Publish generated events to Pub/Sub.")
-    parser.add_argument("--gcp-project-id", type=str, default=os.getenv("GCP_PROJECT_ID"), help="GCP project for Pub/Sub publishing.")
-    parser.add_argument("--clickstream-topic", type=str, default="clickstream", help="Pub/Sub topic for clickstream events.")
+    parser.add_argument("--publish-kafka", action="store_true", help="Publish generated events to Kafka.")
     # fmt: on
 
     args = parser.parse_args()
-    if args.publish_clickstream and not args.gcp_project_id:
-        raise ValueError("gcp-project-id is required when --publish-clickstream is enabled.")
     logging.info(args)
 
     try:

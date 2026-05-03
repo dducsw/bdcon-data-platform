@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.clickstream.event_publisher import ClickstreamEventPublisher
+
 from src.db_writer import DataWriter
 from src.id_allocator import IdAllocator
 from src.models import Event, EventCategory, User, PRODUCT_MAP
@@ -40,10 +40,11 @@ class EventsOnlySimulator:
         self.user_ids = IdAllocator()
         self.event_ids = IdAllocator()
         self.clickstream_publisher = None
-        if args.publish_clickstream:
-            self.clickstream_publisher = ClickstreamEventPublisher(
-                project_id=args.gcp_project_id,
-                topic_name=args.clickstream_topic,
+        if args.publish_kafka:
+            from src.kafka_publisher import KafkaEventPublisher
+            self.clickstream_publisher = KafkaEventPublisher(
+                bootstrap_servers=args.bootstrap_servers,
+                topic_prefix=args.topic_prefix,
             )
 
     async def initialize(self):
@@ -149,6 +150,8 @@ class EventsOnlySimulator:
     async def close(self):
         if self.writer.conn and not self.writer.conn.closed:
             await asyncio.to_thread(self.writer.close)
+        if self.clickstream_publisher and hasattr(self.clickstream_publisher, 'close'):
+            self.clickstream_publisher.close()
 
 
 async def run_simulation(args: argparse.Namespace):
@@ -176,13 +179,11 @@ def main():
     parser.add_argument("--db-name", default="fh_dev", help="Database name.")
     parser.add_argument("--db-schema", default="public", help="Database schema.")
     parser.add_argument("--db-batch-size", type=int, default=1000)
-    parser.add_argument("--publish-clickstream", action="store_true", help="Publish generated events to Pub/Sub.")
-    parser.add_argument("--gcp-project-id", default=None, help="GCP project for Pub/Sub publishing.")
-    parser.add_argument("--clickstream-topic", default="clickstream", help="Pub/Sub topic for clickstream events.")
+    parser.add_argument("--publish-kafka", action="store_true", help="Publish generated events to Kafka.")
+    parser.add_argument("--bootstrap-servers", type=str, default="localhost:9092", help="Bootstrap server addresses.")
+    parser.add_argument("--topic-prefix", type=str, default="ecomm", help="Kafka topic prefix.")
 
     args = parser.parse_args()
-    if args.publish_clickstream and not args.gcp_project_id:
-        raise ValueError("gcp-project-id is required when --publish-clickstream is enabled.")
 
     try:
         asyncio.run(run_simulation(args))

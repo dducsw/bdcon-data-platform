@@ -32,22 +32,22 @@ switch ($Action) {
         & $PYTHON seed_from_csv.py --host $PG_HOST --port $PG_PORT --database $PG_DB --user $PG_USER --password $PG_PASSWORD --schema $PG_SCHEMA --data-dir ./data --truncate-first --year-shift $YEAR_SHIFT $SkipEventsFlag
         
         Write-Host " Step 2: Starting Generator..." -ForegroundColor Gray
-        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 1000 --max-iter -1
+        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 1000 --max-iter -1 --publish-kafka
     }
 
     "gendata" {
         Write-Host " Starting Generator (1000 initial users)..." -ForegroundColor Yellow
-        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 1000 --max-iter -1
+        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 1000 --max-iter -1 --publish-kafka
     }
 
     "resume-gendata" {
         Write-Host " Resuming Generator (0 initial users)..." -ForegroundColor Yellow
-        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 0 --max-iter -1
+        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 0 --max-iter -1 --publish-kafka
     }
 
     "gendata-once" {
         Write-Host " Running Generator for 100 iterations..." -ForegroundColor Yellow
-        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 0 --max-iter 100
+        & $PYTHON thelook-ecomm/generator.py --db-host $PG_HOST --db-port $PG_PORT --db-user $PG_USER --db-password $PG_PASSWORD --db-name $PG_DB --db-schema $PG_SCHEMA --avg-qps 5 --init-num-users 0 --max-iter 100 --publish-kafka
     }
 
     "full-load-gcs" {

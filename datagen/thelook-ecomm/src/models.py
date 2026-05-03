@@ -5,7 +5,8 @@ import logging
 import inspect
 from enum import Enum
 from collections import OrderedDict
-from typing import List, Optional, Self
+from typing import List, Optional
+from typing_extensions import Self
 
 from faker import Faker
 
