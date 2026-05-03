@@ -1,6 +1,15 @@
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, count, max, current_timestamp, round
+from pyspark.sql.functions import (
+    coalesce,
+    col,
+    count,
+    current_timestamp,
+    lit,
+    max,
+    round,
+    sum,
+)
 
 def aggregate_user_statistics(spark: SparkSession, target_table: str) -> None:
     """Aggregates comprehensive user statistics (orders, spend, events)."""
@@ -63,28 +72,6 @@ def aggregate_user_statistics(spark: SparkSession, target_table: str) -> None:
         )
     )
 
-    # 5. Join everything together
-    # Start with users as the base
-    final_df = (
-        users_df.select("id").alias("u")
-        .join(order_summary.alias("os"), col("u.id") == col("os.user_id"), "left")
-        .join(order_metrics.select("user_id", "total_spend").alias("om"), col("u.id") == col("om.user_id"), "left")
-        .join(events_agg.alias("e"), col("u.id") == col("e.user_id"), "left")
-        .select(
-            col("u.id").alias("user_id"),
-            col("os.total_orders").fill(0).alias("total_orders"),
-            col("os.total_items_purchased").fill(0).alias("total_items_purchased"),
-            round(col("om.total_spend"), 2).fill(0.0).alias("total_spend"),
-            col("e.total_events").fill(0).alias("total_events"),
-            col("os.last_order_at"),
-            col("e.last_event_at"),
-            current_timestamp().alias("updated_at")
-        )
-    )
-    
-    # Note: fill() is not a direct column method in Spark SQL in this way, using coalesce
-    from pyspark.sql.functions import coalesce, lit
-    
     final_df = (
         users_df.select(col("id").alias("user_id"))
         .join(order_summary, "user_id", "left")
@@ -127,8 +114,10 @@ if __name__ == "__main__":
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", 
-                "org.apache.hadoop.fs.s3a.EnvironmentVariableCredentialsProvider")
+        .config(
+            "spark.hadoop.fs.s3a.aws.credentials.provider",
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        )
         .enableHiveSupport()
         .getOrCreate()
     )

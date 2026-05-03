@@ -8,7 +8,7 @@ spec:
   pythonVersion: "3"
   mode: cluster
   image: "apache/spark:3.5.0"
-  mainApplicationFile: "local:///opt/spark/work-dir/silver_users.py"
+  mainApplicationFile: "local:///opt/spark/scripts/silver_users.py"
   sparkVersion: "3.5.0"
   restartPolicy:
     type: OnFailure
@@ -42,37 +42,66 @@ spec:
     "spark.jars.ivy": "/tmp/.ivy2"
     "spark.sql.sources.commitProtocolClass": "org.apache.spark.internal.io.cloud.PathOutputCommitProtocol"
     "spark.sql.parquet.output.committer.class": "org.apache.spark.internal.io.cloud.BindingParquetOutputCommitter"
+    "spark.sql.shuffle.partitions": "4"
+    "spark.network.timeout": "300s"
+    "spark.sql.broadcastTimeout": "300"
   driver:
     cores: 1
     coreLimit: "1200m"
-    memory: "1g"
+    memory: "4g"
     serviceAccount: spark-driver
-    env:
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_ACCESS_KEY
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_SECRET_KEY
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-driver
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: silver-ingest-scripts
   executor:
     cores: 1
     coreLimit: "1200m"
     instances: 1
-    memory: "1g"
-    env:
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_ACCESS_KEY
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: spark-minio-secret
-            key: MINIO_SECRET_KEY
+    memory: "4g"
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-executor
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: silver-ingest-scripts
 
 

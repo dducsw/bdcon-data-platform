@@ -1,14 +1,14 @@
 apiVersion: "sparkoperator.k8s.io/v1beta2"
 kind: SparkApplication
 metadata:
-  name: gold-agg-user-statistics
+  name: silver-transform-distribution-centers
   namespace: data-platform
 spec:
   type: Python
   pythonVersion: "3"
   mode: cluster
   image: "apache/spark:3.5.0"
-  mainApplicationFile: "local:///opt/spark/scripts/gold_user_statistics.py"
+  mainApplicationFile: "local:///opt/spark/scripts/silver_distribution_centers.py"
   sparkVersion: "3.5.0"
   restartPolicy:
     type: OnFailure
@@ -48,7 +48,7 @@ spec:
   driver:
     cores: 1
     coreLimit: "1200m"
-    memory: "6g"
+    memory: "4g"
     serviceAccount: spark-driver
     template:
       spec:
@@ -73,12 +73,12 @@ spec:
         volumes:
           - name: script-volume
             configMap:
-              name: gold-ingest-scripts
+              name: silver-ingest-scripts
   executor:
     cores: 1
     coreLimit: "1200m"
     instances: 1
-    memory: "6g"
+    memory: "4g"
     template:
       spec:
         containers:
@@ -102,6 +102,4 @@ spec:
         volumes:
           - name: script-volume
             configMap:
-              name: gold-ingest-scripts
-
-
+              name: silver-ingest-scripts
