@@ -40,7 +40,7 @@ spec:
       # Pin to the same node pool as Trino workers so both engines see the
       # same CPU / memory / disk throughput characteristics.
       nodeSelector:
-        role: query
+        role: compute
       tolerations:
         - key: "cloud.google.com/gke-spot"
           operator: "Equal"
@@ -50,7 +50,7 @@ spec:
       volumes:
         - name: results
           persistentVolumeClaim:
-            claimName: benchmark-results-pvc
+            claimName: spark-results-pvc
         - name: queries
           configMap:
             name: tpcds-queries
@@ -80,11 +80,11 @@ spec:
           # Matches Trino total: 2 vCPU + 8 Gi.
           resources:
             requests:
-              cpu: "2000m"
+              cpu: "500m"
               memory: "8Gi"
             limits:
-              cpu: "2000m"
-              memory: "8Gi"
+              cpu: "1000m"
+              memory: "12Gi"
 
           env:
             - name: AWS_ACCESS_KEY_ID

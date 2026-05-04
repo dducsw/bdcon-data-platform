@@ -180,6 +180,11 @@ def _build_spark(env: dict):
 
 
 # ─── Query execution ──────────────────────────────────────────────────────────
+import resource
+def get_memory_usage_mb():
+    """Lấy lượng RAM thực tế (Resident Set Size - RSS) mà toàn bộ tiến trình Python và các tiến trình con (bao gồm JVM của Spark) đang chiếm dụng tại OS level."""
+    # Trả về KB, chia 1024 để ra MB
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 def run_query(spark, sql: str) -> tuple[list, float, str, str]:
     """
@@ -190,6 +195,9 @@ def run_query(spark, sql: str) -> tuple[list, float, str, str]:
     status = "success"
     error_message = ""
     rows: list = []
+
+    mem_before = get_memory_usage_mb()
+
     try:
         df = spark.sql(sql)
         rows = df.collect()          # triggers full execution
@@ -197,7 +205,9 @@ def run_query(spark, sql: str) -> tuple[list, float, str, str]:
         status = "failed"
         error_message = str(exc)[:2000]
     wall = time.perf_counter() - started
-    return rows, wall, status, error_message
+    mem_peak = get_memory_usage_mb() 
+    mem_used = max(0, mem_peak - mem_before)
+    return rows, wall, status, error_message, mem_used
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -245,7 +255,7 @@ def main() -> None:
                 if listener_ok:
                     metrics.reset()
 
-                rows, wall, status, err = run_query(spark, sql)
+                rows, wall, status, err, mem_used = run_query(spark, sql)
 
                 m = metrics.snapshot() if listener_ok else {"peak_memory_bytes": 0,
                                                              "spill_bytes": 0,
@@ -259,7 +269,7 @@ def main() -> None:
                     query_id=f"spark-local-{query_name}-{run_label}",
                     status=status,
                     wall_time_seconds=wall,
-                    peak_memory_bytes=m["peak_memory_bytes"],
+                    peak_memory_bytes=mem_used,
                     spill_bytes=m["spill_bytes"],
                     cpu_time_millis=m["cpu_time_millis"],
                     result_hash=stable_hash(rows) if rows else "",
