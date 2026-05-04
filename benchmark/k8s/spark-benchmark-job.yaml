@@ -1,24 +1,132 @@
+# =============================================================================
+# spark-benchmark-job.yaml
+#
+# Design goals:
+#   - Spark runs as a local[4] SparkSession INSIDE this pod (no external
+#     Thrift Server, no separate executor pods) → single scheduling unit,
+#     no network overhead between driver and workers.
+#   - Resource request mirrors the Trino side exactly: 4 vCPU / 8 Gi total.
+#   - The pod mounts the same PVC used by the Trino job for results, so
+#     build_report.py can merge them without copying files.
+#   - backoffLimit: 0  — fail fast, never silently retry and mix runs.
+#
+# Resource accounting:
+#   Pod request:   cpu=4000m, memory=8Gi
+#   spark.driver.cores=4  (matches vCPU request)
+#   spark.driver.memory=7g (8Gi pod − 1Gi OS/JVM off-heap buffer)
+# =============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: spark-benchmark-runner
   namespace: data-platform
+  labels:
+    app: benchmark
+    engine: spark
+    dataset: tpcds-sf5
 spec:
   backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
   template:
+    metadata:
+      labels:
+        app: benchmark
+        engine: spark
     spec:
       serviceAccountName: spark-driver
+      restartPolicy: Never
+
+      # ── Node placement ─────────────────────────────────────────────────────
+      # Pin to the same node pool as Trino workers so both engines see the
+      # same CPU / memory / disk throughput characteristics.
+      nodeSelector:
+        role: compute
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: benchmark-results-pvc
+        - name: queries
+          configMap:
+            name: tpcds-queries
+
+      initContainers:
+        # Wait until Hive Metastore is reachable before starting the benchmark.
+        - name: wait-metastore
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z hive-metastore 9083; do
+                echo "Waiting for hive-metastore:9083 …"
+                sleep 3
+              done
+
       containers:
-        - name: runner
-          image: python:3.9-slim
+        - name: spark-benchmark
+          # Use the official Spark image so spark-submit and all JARs are present.
+          image: apache/spark:3.5.3-scala2.12-java17-python3-ubuntu
+          imagePullPolicy: IfNotPresent
+
+          # ── Resource budget ─────────────────────────────────────────────────
+          # Matches Trino total: 4 vCPU + 8 Gi.
+          resources:
+            requests:
+              cpu: "4000m"
+              memory: "8Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: spark-minio-secret
+                  key: MINIO_SECRET_KEY
+            # Expose pod name for metric tagging
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          volumeMounts:
+            - name: results
+              mountPath: /benchmark/results
+            - name: queries
+              mountPath: /benchmark/queries
+
           command: ["/bin/bash", "-c"]
           args:
             - |
-              apt-get update && apt-get install -y git
-              pip install pyhive thrift thrift-sasl pure-sasl
-              git clone https://github.com/dducsw/bdcon-data-platform /app
+              set -euo pipefail
+
+              echo "=== Installing Python dependencies ==="
+              pip install --quiet pyspark==3.5.3 boto3
+
+              echo "=== Cloning benchmark harness ==="
+              git clone --depth 1 --branch dev \
+                https://github.com/dducsw/bdcon-data-platform /app
+
+              echo "=== Loading config ==="
+              set -a
+              source /app/benchmark/config/benchmark.env
+              set +a
+
+              # Override paths so the script writes to the mounted PVC
+              export RESULTS_DIR=/benchmark/results
+
+              echo "=== Starting Spark benchmark ==="
               cd /app
-              git checkout dev
-              source benchmark/config/benchmark.env
               python -u benchmark/scripts/run_spark_benchmark.py
-      restartPolicy: Never

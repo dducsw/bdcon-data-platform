@@ -1,0 +1,110 @@
+# =============================================================================
+# trino-values.yaml  —  Helm values for Trino 471
+#
+# Resource budget:
+#   coordinator:  1 vCPU  /  2 Gi   (query planning only, no execution)
+#   worker x1:    3 vCPU  /  6 Gi   (all data execution happens here)
+#   TOTAL:        4 vCPU  /  8 Gi   ← matches spark-benchmark-job exactly
+#
+# With local[4] Spark, the driver uses all 4 cores for both planning and
+# execution, so the combined Trino budget is a fair equivalent.
+# =============================================================================
+image:
+  repository: trinodb/trino
+  tag: "471"
+
+server:
+  workers: 1          # 1 worker = 3 vCPU / 6 Gi; coordinator = 1 vCPU / 2 Gi
+
+# ── Coordinator ──────────────────────────────────────────────────────────────
+coordinator:
+  jvm:
+    maxHeapSize: "1500M"
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  config:
+    memory:
+      heapHeadroomPerNode: "256MB"
+    query:
+      maxMemory: "1GB"
+      maxMemoryPerNode: "1GB"
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  nodeSelector:
+    role: infra
+
+# ── Worker ────────────────────────────────────────────────────────────────────
+worker:
+  jvm:
+    maxHeapSize: "5G"
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  config:
+    memory:
+      heapHeadroomPerNode: "512MB"
+    query:
+      # Allow each query to use up to 5 Gi on this node.
+      maxMemoryPerNode: "5GB"
+  resources:
+    requests:
+      cpu: "3000m"
+      memory: "6Gi"
+    limits:
+      cpu: "3000m"
+      memory: "6Gi"
+  nodeSelector:
+    role: compute
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+
+# ── Catalogs ──────────────────────────────────────────────────────────────────
+# catalog.iceberg uses the same Hive Metastore URI and MinIO endpoint
+# as the Spark benchmark so both engines read identical Iceberg snapshots.
+additionalCatalogs:
+  iceberg: |
+    connector.name=iceberg
+    iceberg.catalog.type=hive_metastore
+    hive.metastore.uri=thrift://hive-metastore:9083
+    hive.s3.endpoint=http://minio:9000
+    hive.s3.path-style-access=true
+    hive.s3.ssl.enabled=false
+    hive.s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    hive.s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    # Statistics for CBO — match ANALYZE step in prepare_tpcds_data.py
+    iceberg.table-statistics-enabled=true
+    # Pushdown
+    iceberg.pushdown-filter-enabled=true
+
+  tpcds: |
+    connector.name=tpcds
+    tpcds.splits-per-node=4
+
+# Expose MinIO credentials as env vars consumed by the catalog config above.
+secretMounts:
+  - name: spark-minio-secret
+    secretName: spark-minio-secret
+    path: /etc/trino/secrets
+
+env:
+  - name: MINIO_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: spark-minio-secret
+        key: MINIO_ACCESS_KEY
+  - name: MINIO_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: spark-minio-secret
+        key: MINIO_SECRET_KEY

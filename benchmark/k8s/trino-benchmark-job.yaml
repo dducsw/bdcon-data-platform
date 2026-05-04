@@ -1,23 +1,114 @@
+# =============================================================================
+# trino-benchmark-job.yaml
+#
+# Design goals:
+#   - This pod is a thin Python client; it submits queries to the Trino
+#     cluster via REST and records server-reported stats (elapsedTimeMillis,
+#     peakMemoryBytes, cpuTimeMillis) from the final payload.
+#   - Trino cluster resource budget = coordinator + workers should total
+#     4 vCPU + 8 Gi to match the Spark pod.
+#     Example: 1 coordinator (1 vCPU / 2 Gi) + 1 worker (3 vCPU / 6 Gi).
+#     This is configured in the Trino Helm values — see trino-values.yaml.
+#   - The runner pod itself is deliberately tiny (0.25 vCPU / 256 Mi); it
+#     spends 99% of its time waiting for HTTP responses.
+#   - Shares the same PVC as the Spark job so build_report.py sees both files.
+#
+# IMPORTANT: run the Spark job first (or in parallel), never both jobs on
+# the same node — they must not compete for CPU/memory with each other.
+# =============================================================================
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: trino-benchmark-runner
   namespace: data-platform
+  labels:
+    app: benchmark
+    engine: trino
+    dataset: tpcds-sf5
 spec:
   backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
   template:
+    metadata:
+      labels:
+        app: benchmark
+        engine: trino
     spec:
+      restartPolicy: Never
+
+      # ── Node placement ─────────────────────────────────────────────────────
+      # Pin the runner pod to infra-pool so it does NOT share a node with
+      # Trino workers (which sit on query-pool). This isolates the client
+      # overhead from the engine under test.
+      nodeSelector:
+        role: infra
+
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: benchmark-results-pvc
+        - name: queries
+          configMap:
+            name: tpcds-queries
+
+      initContainers:
+        - name: wait-trino
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- http://trino:8080/v1/info | grep -q '"starting":false'; do
+                echo "Waiting for Trino to finish startup …"
+                sleep 5
+              done
+
       containers:
-        - name: runner
-          image: python:3.9-slim
+        - name: trino-benchmark
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          env:
+            - name: TRINO_BASE_URL
+              value: "http://trino:8080"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          volumeMounts:
+            - name: results
+              mountPath: /benchmark/results
+            - name: queries
+              mountPath: /benchmark/queries
+
           command: ["/bin/bash", "-c"]
           args:
             - |
-              apt-get update && apt-get install -y git
-              git clone https://github.com/dducsw/bdcon-data-platform /app
+              set -euo pipefail
+
+              echo "=== Installing dependencies ==="
+              pip install --quiet requests
+
+              echo "=== Cloning benchmark harness ==="
+              git clone --depth 1 --branch dev \
+                https://github.com/dducsw/bdcon-data-platform /app
+
+              echo "=== Loading config ==="
+              set -a
+              source /app/benchmark/config/benchmark.env
+              set +a
+
+              export RESULTS_DIR=/benchmark/results
+
+              echo "=== Starting Trino benchmark ==="
               cd /app
-              git checkout dev
-              source benchmark/config/benchmark.env
-              export TRINO_BASE_URL=http://trino:8080 
               python -u benchmark/scripts/run_trino_benchmark.py
-      restartPolicy: Never

@@ -1,0 +1,95 @@
+# =============================================================================
+# benchmark-infra.yaml
+#
+# Shared infrastructure used by both benchmark jobs:
+#   - benchmark-results-pvc  : RWX PVC so both jobs can write simultaneously
+#                              (or sequentially) and build_report.py reads both
+#   - tpcds-queries ConfigMap : query files mounted into both job pods
+#                               (ensures identical SQL text for both engines)
+# =============================================================================
+
+# ── PersistentVolumeClaim ─────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: benchmark-results-pvc
+  namespace: data-platform
+  labels:
+    app: benchmark
+spec:
+  accessModes:
+    - ReadWriteMany       # Both jobs + report job can mount simultaneously
+  storageClassName: standard-rwx   # GKE Filestore or equivalent RWX class
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# ── RBAC: ServiceAccount for build-report job ─────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: benchmark-runner
+  namespace: data-platform
+
+---
+# ── build-report Job ──────────────────────────────────────────────────────────
+# Run this AFTER both spark-benchmark-runner and trino-benchmark-runner
+# have completed (use a Makefile target or Argo Workflow for sequencing).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchmark-report-builder
+  namespace: data-platform
+  labels:
+    app: benchmark
+    stage: report
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: benchmark
+        stage: report
+    spec:
+      serviceAccountName: benchmark-runner
+      restartPolicy: Never
+      nodeSelector:
+        role: infra
+
+      volumes:
+        - name: results
+          persistentVolumeClaim:
+            claimName: benchmark-results-pvc
+
+      containers:
+        - name: report
+          image: python:3.11-slim
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          volumeMounts:
+            - name: results
+              mountPath: /benchmark/results
+
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --quiet jinja2
+              git clone --depth 1 --branch dev \
+                https://github.com/dducsw/bdcon-data-platform /app
+              set -a
+              source /app/benchmark/config/benchmark.env
+              set +a
+              export RESULTS_DIR=/benchmark/results
+              cd /app
+              python -u benchmark/scripts/build_report.py
+              echo "=== Report written to /benchmark/results/reports/ ==="
+              ls -lh /benchmark/results/reports/
