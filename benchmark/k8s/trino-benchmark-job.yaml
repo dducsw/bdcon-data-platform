@@ -41,7 +41,7 @@ spec:
       # Trino workers (which sit on query-pool). This isolates the client
       # overhead from the engine under test.
       nodeSelector:
-        role: infra
+        role: compute
 
       volumes:
         - name: results
@@ -94,6 +94,9 @@ spec:
           args:
             - |
               set -euo pipefail
+
+              echo "=== Installing git ==="
+              apt-get update && apt-get install -y git
 
               echo "=== Installing dependencies ==="
               pip install --quiet requests

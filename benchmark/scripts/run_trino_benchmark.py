@@ -222,6 +222,7 @@ def main() -> None:
                     f"→ {status}  wall={wall:.2f}s  "
                     f"mem={mem_mb}MB  "
                     f"spill={record['spill_bytes']//1024}KB"
+                    + (f"\n  ERROR: {record['error_message']}" if status != "success" else "")
                 )
 
     except KeyboardInterrupt:
