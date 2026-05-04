@@ -1,22 +1,36 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: tpcds-data-preparer
+  name: tpcds-prepare-data
   namespace: data-platform
 spec:
   template:
     spec:
+      # Chạy trên node infra để gần với Hive Metastore và MinIO nhất
+      nodeSelector:
+        role: infra
       containers:
         - name: preparer
           image: python:3.11-slim
           command: ["/bin/bash", "-c"]
           args:
             - |
+              set -euo pipefail
+              echo "=== Installing dependencies ==="
               apt-get update && apt-get install -y git
-              git clone --branch dev https://github.com/dducsw/bdcon-data-platform /app
+              pip install --no-cache-dir requests python-dotenv
+
+              echo "=== Cloning repo ==="
+              git clone --depth 1 --branch dev https://github.com/dducsw/bdcon-data-platform /app
               cd /app
-              pip install requests python-dotenv
-              # Chỉnh sửa biến môi trường để trỏ trực tiếp vào Service trino trong K8s
-              export TRINO_BASE_URL=http://trino:8080 
+
+              echo "=== Configuring environment ==="
+              # Trỏ trực tiếp vào service trino bên trong K8s (không qua localhost)
+              export TRINO_BASE_URL=http://trino:8080
+              export TRINO_CATALOG=iceberg_hive
+              export SPARK_CATALOG=iceberg_hive
+
+              echo "=== Running data preparation ==="
               python3 benchmark/scripts/prepare_tpcds_data.py
       restartPolicy: Never
+  backoffLimit: 1
