@@ -1,24 +1,24 @@
 apiVersion: batch/v1
-    kind: Job
-    metadata:
-      name: spark-benchmark-runner
-      namespace: data-platform
+kind: Job
+metadata:
+  name: spark-benchmark-runner
+  namespace: data-platform
+spec:
+  backoffLimit: 0
+  template:
     spec:
-      backoffLimit: 0
-      template:
-        spec:
-          serviceAccountName: spark-driver
-          containers:
-          - name: runner
-            image: python:3.9-slim
-            command: ["/bin/bash", "-c"]
-            args:
-            - |
-              apt-get update && apt-get install -y git
-              pip install pyhive thrift thrift-sasl pure-sasl
-              git clone https://github.com/dducsw/bdcon-data-platform /app
-              cd /app/bdcon-data-platform
-              git checkout dev
-              source config/benchmark.env
-              python -u scripts/run_spark_benchmark.py
-          restartPolicy: Never
+      serviceAccountName: spark-driver
+      containers:
+      - name: runner
+        image: python:3.9-slim
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          apt-get update && apt-get install -y git
+          pip install pyhive thrift thrift-sasl pure-sasl
+          git clone https://github.com/dducsw/bdcon-data-platform /app
+          cd /app/bdcon-data-platform
+          git checkout dev
+          source config/benchmark.env
+          python -u scripts/run_spark_benchmark.py
+      restartPolicy: Never

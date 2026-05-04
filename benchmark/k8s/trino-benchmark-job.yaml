@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trino-benchmark-runner
+  namespace: data-platform
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+        - name: runner
+          image: python:3.9-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              apt-get update && apt-get install -y git
+              git clone https://github.com/dducsw/bdcon-data-platform /app
+              cd /app
+              git checkout dev
+              source benchmark/config/benchmark.env
+              export TRINO_BASE_URL=http://trino:8080 
+              python -u benchmark/scripts/run_trino_benchmark.py
+      restartPolicy: Never
