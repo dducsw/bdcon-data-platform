@@ -40,7 +40,7 @@ spec:
       # Pin to the same node pool as Trino workers so both engines see the
       # same CPU / memory / disk throughput characteristics.
       nodeSelector:
-        role: infra
+        role: query
       tolerations:
         - key: "cloud.google.com/gke-spot"
           operator: "Equal"
