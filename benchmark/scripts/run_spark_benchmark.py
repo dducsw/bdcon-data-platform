@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import json
 import time
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from pyhive import hive
 
 from common import ROOT, ensure_dir, load_env, read_query_list, stable_hash, write_jsonl
+
+
+def fmt_bytes(b: int) -> str:
+    """Format bytes into human-readable string."""
+    if b <= 0:
+        return "0 B"
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(b) < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} TB"
 
 
 def fetch_spark_rest_metrics(host: str, ui_port: int) -> dict:
@@ -80,11 +93,57 @@ def run_query(env: dict, cursor, sql_text: str) -> tuple[list, float, str]:
     return rows, elapsed, status, error_message
 
 
+def is_connection_error(error_message: str) -> bool:
+    """Checks if the error message indicates a lost connection."""
+    connection_errors = [
+        "Broken pipe",
+        "TTransportException",
+        "connection refused",
+        "socket closed",
+        "Connection reset"
+    ]
+    return any(err.lower() in error_message.lower() for err in connection_errors)
+
+
+def print_summary(records: list[dict]) -> None:
+    """Print a summary table at the end of the benchmark run."""
+    measured = [r for r in records if r["run_type"] == "measured" and r["status"] == "success"]
+    if not measured:
+        return
+
+    by_query = defaultdict(list)
+    for r in measured:
+        by_query[r["query_name"]].append(r["query_time_seconds"])
+
+    print("\n" + "=" * 70)
+    print("  SPARK BENCHMARK SUMMARY")
+    print("=" * 70)
+    print(f"{'Query':<12} {'Avg (s)':>8} {'Min (s)':>8} {'Max (s)':>8} {'Rows':>8} {'Runs':>5}")
+    print("-" * 70)
+
+    total_avg = 0
+    for qname in sorted(by_query.keys()):
+        times = by_query[qname]
+        avg_t = sum(times) / len(times)
+        total_avg += avg_t
+        # Find row count from the first measured record for this query
+        row_count = next((r["row_count"] for r in measured if r["query_name"] == qname), 0)
+        print(f"{qname:<12} {avg_t:>8.2f} {min(times):>8.2f} {max(times):>8.2f} {row_count:>8} {len(times):>5}")
+
+    print("-" * 70)
+    total_time = sum(r["query_time_seconds"] for r in measured)
+    print(f"{'TOTAL':<12} {total_avg:>8.2f} {'':>8} {'':>8} {'':>8} {len(measured):>5}")
+    print(f"  Total measured time: {total_time:.2f}s")
+    print(f"  Success rate: {len(measured)}/{len([r for r in records if r['run_type'] == 'measured'])} queries")
+    print("=" * 70)
+
+
 def main() -> None:
     env = load_env()
     query_files = read_query_list(env)
     warmups = int(env["WARMUP_RUNS"])
     runs = int(env["RUNS"])
+    total_queries = len(query_files)
 
     records = []
     raw_dir = ROOT / env["RESULTS_DIR"] / "raw"
@@ -98,11 +157,21 @@ def main() -> None:
     catalog = env.get("SPARK_CATALOG", "catalog_iceberg")
     schema = env.get("SPARK_SCHEMA", "benchmark_tpcds_sf1")
 
-    print(f"Connecting to Spark Thrift Server at {host}:{port}...")
+    print("=" * 60)
+    print("  SPARK TPC-DS BENCHMARK")
+    print("=" * 60)
+    print(f"  Host:    {host}:{port}")
+    print(f"  Schema:  {catalog}.{schema}")
+    print(f"  Queries: {total_queries}")
+    print(f"  Warmups: {warmups}, Measured: {runs}")
+    print(f"  Started: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print("=" * 60)
+
+    print(f"\nConnecting to Spark Thrift Server at {host}:{port}...")
     try:
         conn = hive.Connection(host=host, port=port, database=schema)
         cursor = conn.cursor()
-        print("Connected successfully!")
+        print("Connected successfully!\n")
     except Exception as e:
         print(f"Failed to connect to Spark Thrift Server: {e}")
         return
@@ -112,8 +181,9 @@ def main() -> None:
     cursor.execute("SET spark.sql.adaptive.coalescePartitions.enabled=true")
     cursor.execute(f"USE {catalog}.{schema}")
 
+    benchmark_start = time.perf_counter()
     try:
-        for query_file in query_files:
+        for q_idx, query_file in enumerate(query_files, 1):
             query_name = query_file.stem
             sql_text = query_file.read_text(encoding="utf-8").strip()
             if sql_text.endswith(";"):
@@ -122,9 +192,12 @@ def main() -> None:
             if str(env.get("WRAP_COUNT", "false")).lower() == "true":
                 sql_text = f"SELECT COUNT(*) FROM (\n{sql_text}\n)"
 
+            print(f"[{q_idx}/{total_queries}] {query_name}")
+
             for run_index in range(1, warmups + runs + 1):
                 is_warmup = run_index <= warmups
                 measured_run = 0 if is_warmup else run_index - warmups
+                run_label = "warmup" if is_warmup else f"run {measured_run}"
                 
                 rows, query_time, status, error_message = run_query(env, cursor, sql_text)
 
@@ -153,14 +226,30 @@ def main() -> None:
                 with output_file.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(record) + "\n")
 
-                print(f"Spark {query_name} run {run_index} -> {status} (Query: {query_time:.2f}s)")
+                status_icon = "✓" if status == "success" else "✗"
+                mem_str = f" | mem: {fmt_bytes(metrics['peak_memory_bytes'])}" if metrics["peak_memory_bytes"] > 0 else ""
+                rows_str = f" | rows: {len(rows)}" if rows else ""
+                print(f"  {status_icon} {run_label}: {query_time:.2f}s{rows_str}{mem_str}")
+
+                if status == "failed":
+                    print(f"    Error: {error_message}")
+                    if is_connection_error(error_message):
+                        print("    Critical: Connection lost. Stopping benchmark.")
+                        return
     except KeyboardInterrupt:
         print("\nBenchmark interrupted by user. Partial results saved to", output_file)
     finally:
-        cursor.close()
-        conn.close()
-    
-    print(f"Benchmark finished. Total records: {len(records)}")
+        try:
+            if 'cursor' in locals(): cursor.close()
+            if 'conn' in locals(): conn.close()
+        except Exception:
+            pass # Ignore connection close errors if server is already down
+
+    benchmark_elapsed = time.perf_counter() - benchmark_start
+    print(f"\nFinished: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(f"Total wall time (incl. warmup): {benchmark_elapsed:.1f}s")
+
+    print_summary(records)
 
 
 if __name__ == "__main__":

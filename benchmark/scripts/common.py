@@ -57,7 +57,7 @@ def normalize_value(val) -> str:
         # Check if it's a number
         f_val = float(s_val)
         # Round and format as a fixed-point string to avoid scientific notation or precision diffs
-        return "{:.4f}".format(round(f_val, 4))
+        return "{:.2f}".format(round(f_val, 2))
     except (ValueError, TypeError):
         # Not a number, return as-is
         return s_val

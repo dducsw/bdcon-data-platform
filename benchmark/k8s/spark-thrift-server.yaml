@@ -39,7 +39,7 @@ spec:
               --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2 \
               --name "Spark Thrift Server" \
               --master "local[4]" \
-              --driver-memory 4g \
+              --driver-memory 16g \
               --conf "spark.jars.ivy=/tmp/.ivy2" \
               --conf "spark.hive.server2.thrift.bind.host=0.0.0.0" \
               --packages "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262" \
@@ -64,6 +64,13 @@ spec:
               --conf "spark.sql.parquet.output.committer.class=org.apache.spark.internal.io.cloud.BindingParquetOutputCommitter" \
               --conf "spark.sql.catalogImplementation=hive" \
               --conf "spark.hadoop.hive.metastore.uris=thrift://hive-metastore:9083"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "12Gi"
+            limits:
+              cpu: "4"
+              memory: "20Gi"
           ports:
             - containerPort: 10000
               name: jdbc
