@@ -18,8 +18,8 @@ metadata:
     app: benchmark
 spec:
   accessModes:
-    - ReadWriteMany       # Both jobs + report job can mount simultaneously
-  storageClassName: standard-rwx   # GKE Filestore or equivalent RWX class
+    - ReadWriteOnce       # Both jobs + report job can mount simultaneously
+  storageClassName: standard   # GKE Filestore or equivalent RWX class
   resources:
     requests:
       storage: 5Gi

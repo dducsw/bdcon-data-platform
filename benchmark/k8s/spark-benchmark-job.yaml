@@ -40,7 +40,7 @@ spec:
       # Pin to the same node pool as Trino workers so both engines see the
       # same CPU / memory / disk throughput characteristics.
       nodeSelector:
-        role: compute
+        role: infra
       tolerations:
         - key: "cloud.google.com/gke-spot"
           operator: "Equal"
@@ -72,16 +72,18 @@ spec:
         - name: spark-benchmark
           # Use the official Spark image so spark-submit and all JARs are present.
           image: apache/spark:3.5.3-scala2.12-java17-python3-ubuntu
+          securityContext:
+            runAsUser: 0
           imagePullPolicy: IfNotPresent
 
           # ── Resource budget ─────────────────────────────────────────────────
-          # Matches Trino total: 4 vCPU + 8 Gi.
+          # Matches Trino total: 2 vCPU + 8 Gi.
           resources:
             requests:
-              cpu: "4000m"
+              cpu: "2000m"
               memory: "8Gi"
             limits:
-              cpu: "4000m"
+              cpu: "2000m"
               memory: "8Gi"
 
           env:
@@ -112,21 +114,25 @@ spec:
             - |
               set -euo pipefail
 
+              echo "=== Installing git ==="
+              apt-get update && apt-get install -y git
+
               echo "=== Installing Python dependencies ==="
               pip install --quiet pyspark==3.5.3 boto3
 
               echo "=== Cloning benchmark harness ==="
+              rm -rf /tmp/app
               git clone --depth 1 --branch dev \
-                https://github.com/dducsw/bdcon-data-platform /app
+                https://github.com/dducsw/bdcon-data-platform /tmp/app
 
               echo "=== Loading config ==="
               set -a
-              source /app/benchmark/config/benchmark.env
+              source /tmp/app/benchmark/config/benchmark.env
               set +a
 
               # Override paths so the script writes to the mounted PVC
               export RESULTS_DIR=/benchmark/results
 
               echo "=== Starting Spark benchmark ==="
-              cd /app
-              python -u benchmark/scripts/run_spark_benchmark.py
+              cd /tmp/app
+              python3 -u benchmark/scripts/run_spark_benchmark.py

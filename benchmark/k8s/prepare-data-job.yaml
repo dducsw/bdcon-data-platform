@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tpcds-data-preparer
+  namespace: data-platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: preparer
+          image: python:3.11-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              apt-get update && apt-get install -y git
+              git clone --branch dev https://github.com/dducsw/bdcon-data-platform /app
+              cd /app
+              pip install requests python-dotenv
+              # Chỉnh sửa biến môi trường để trỏ trực tiếp vào Service trino trong K8s
+              export TRINO_BASE_URL=http://trino:8080 
+              python3 benchmark/scripts/prepare_tpcds_data.py
+      restartPolicy: Never
