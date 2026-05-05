@@ -15,7 +15,7 @@ server:
     trino:
       level: INFO
   etcFiles:
-    kafka/click_events.json: |
+    click_events.json: |
       {
         "tableName": "click_events",
         "schemaName": "default",
@@ -187,5 +187,10 @@ additionalCatalogs:
   kafka: |
     connector.name=kafka
     kafka.nodes=data-platform-kafka-bootstrap:9092
-    kafka.table-description-dir=/etc/trino/kafka
+    kafka.table-description-dir=/etc/trino
     kafka.hide-internal-columns=false
+  postgres_source: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://postgres-source:5432/thelook_db
+    connection-user=db_user
+    connection-password=db_password
