@@ -73,6 +73,46 @@ class _QueryMetrics:
                 "cpu_time_millis": int(self._cpu_ns // 1_000_000),
             }
 
+import threading
+
+class MemoryMonitor:
+    def __init__(self):
+        self.keep_running = False
+        self.peak_memory_mb = 0
+
+    def _get_current_memory(self):
+        """Đọc RAM trực tiếp từ file hệ thống của Kubernetes Container"""
+        try:
+            # Dành cho Kubernetes dùng Cgroup v2 (phiên bản mới)
+            if os.path.exists('/sys/fs/cgroup/memory.current'):
+                with open('/sys/fs/cgroup/memory.current', 'r') as f:
+                    return int(f.read().strip()) / (1024 * 1024)
+            # Dành cho Kubernetes dùng Cgroup v1 (phiên bản cũ)
+            elif os.path.exists('/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+                with open('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'r') as f:
+                    return int(f.read().strip()) / (1024 * 1024)
+        except Exception:
+            pass
+        return 0
+
+    def _monitor(self):
+        while self.keep_running:
+            current = self._get_current_memory()
+            if current > self.peak_memory_mb:
+                self.peak_memory_mb = current
+            time.sleep(0.1) # Quét 10 lần mỗi giây
+
+    def start(self):
+        self.keep_running = True
+        self.peak_memory_mb = self._get_current_memory()
+        self.thread = threading.Thread(target=self._monitor)
+        self.thread.start()
+
+    def stop(self):
+        self.keep_running = False
+        self.thread.join()
+        return self.peak_memory_mb
+
 
 def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
     """
@@ -186,28 +226,30 @@ def get_memory_usage_mb():
     # Trả về KB, chia 1024 để ra MB
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
-def run_query(spark, sql: str) -> tuple[list, float, str, str]:
-    """
-    Execute sql, return (rows, wall_time_seconds, status, error_message).
-    rows is empty on failure.
-    """
+def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
+    monitor = MemoryMonitor()
+    
+    # Bắt đầu đo RAM
+    monitor.start()
+    
     started = time.perf_counter()
     status = "success"
     error_message = ""
     rows: list = []
 
-    mem_before = get_memory_usage_mb()
-
     try:
         df = spark.sql(sql)
-        rows = df.collect()          # triggers full execution
+        rows = df.collect() 
     except Exception as exc:
         status = "failed"
         error_message = str(exc)[:2000]
+        
     wall = time.perf_counter() - started
-    mem_peak = get_memory_usage_mb() 
-    mem_used = max(0, mem_peak - mem_before)
-    return rows, wall, status, error_message, mem_used
+    
+    # Kết thúc đo RAM và lấy kết quả đỉnh (Peak Memory)
+    peak_mem_mb = monitor.stop()
+
+    return rows, wall, status, error_message, peak_mem_mb
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────

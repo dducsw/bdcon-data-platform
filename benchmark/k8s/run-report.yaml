@@ -1,0 +1,80 @@
+# k8s/run-report.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: benchmark-runner
+  namespace: data-platform
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchmark-report-builder
+  namespace: data-platform
+  labels:
+    app: benchmark
+    stage: report
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: benchmark
+        stage: report
+    spec:
+      serviceAccountName: benchmark-runner
+      restartPolicy: Never
+      nodeSelector:
+        role: infra
+      volumes:
+        - name: spark-res
+          persistentVolumeClaim:
+            claimName: spark-results-pvc
+        - name: trino-res
+          persistentVolumeClaim:
+            claimName: benchmark-results-pvc
+      containers:
+        - name: report
+          image: python:3.11-slim
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: spark-res
+              mountPath: /tmp/spark_data
+            - name: trino-res
+              mountPath: /tmp/trino_data
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "=== Cài đặt dependencies ==="
+              pip install --quiet jinja2
+              apt-get update && apt-get install -y git
+              
+              echo "=== Gôm dữ liệu từ Spark và Trino ==="
+              mkdir -p /benchmark/results/raw
+              cp /tmp/spark_data/raw/spark_results.jsonl /benchmark/results/raw/ 2>/dev/null || true
+              cp /tmp/trino_data/raw/trino_results.jsonl /benchmark/results/raw/ 2>/dev/null || true
+              
+              echo "=== Tải script báo cáo ==="
+              git clone --depth 1 --branch dev https://github.com/dducsw/bdcon-data-platform /app
+              cd /app
+              
+              set -a
+              source /app/benchmark/config/benchmark.env
+              set +a
+              
+              export RESULTS_DIR=/benchmark/results
+              echo "=== Đang xây dựng báo cáo ==="
+              python -u benchmark/scripts/build_report.py
+              
+              echo ""
+              echo "============================================================"
+              echo "                   BÁO CÁO KẾT QUẢ                          "
+              echo "============================================================"
+              cat /benchmark/results/reports/summary_report.md
