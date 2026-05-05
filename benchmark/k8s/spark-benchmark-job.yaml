@@ -114,23 +114,29 @@ spec:
             - |
               set -euo pipefail
 
-              echo "=== Installing git ==="
-              apt-get update && apt-get install -y git
-
-              echo "=== Installing Python dependencies ==="
+              echo "=== Bỏ qua apt-get, cài đặt luôn Python dependencies ==="
               pip install --quiet pyspark==3.5.3 boto3
 
-              echo "=== Cloning benchmark harness ==="
+              echo "=== Tải trực tiếp code bằng Python (Không cần Git) ==="
               rm -rf /tmp/app
-              git clone --depth 1 --branch dev \
-                https://github.com/dducsw/bdcon-data-platform /tmp/app
+              python3 -c "
+              import urllib.request, zipfile, os
+              print('Đang tải file zip từ GitHub...')
+              url = 'https://github.com/dducsw/bdcon-data-platform/archive/refs/heads/dev.zip'
+              urllib.request.urlretrieve(url, '/tmp/repo.zip')
+              print('Đang giải nén...')
+              with zipfile.ZipFile('/tmp/repo.zip', 'r') as zip_ref:
+                  zip_ref.extractall('/tmp/extract')
+              os.rename('/tmp/extract/bdcon-data-platform-dev', '/tmp/app')
+              print('Xong!')
+              "
 
               echo "=== Loading config ==="
               set -a
               source /tmp/app/benchmark/config/benchmark.env
               set +a
 
-              # Override paths so the script writes to the mounted PVC
+              # Ghi đè đường dẫn xuất kết quả
               export RESULTS_DIR=/benchmark/results
 
               echo "=== Starting Spark benchmark ==="
