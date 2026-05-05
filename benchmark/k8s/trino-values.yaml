@@ -1,102 +1,98 @@
-# =============================================================================
-# trino-values.yaml  —  Helm values for Trino 471
-#
-# Resource budget:
-#   coordinator:  1 vCPU  /  2 Gi   (query planning only, no execution)
-#   worker x1:    3 vCPU  /  6 Gi   (all data execution happens here)
-#   TOTAL:        4 vCPU  /  8 Gi   ← matches spark-benchmark-job exactly
-#
-# With local[4] Spark, the driver uses all 4 cores for both planning and
-# execution, so the combined Trino budget is a fair equivalent.
-# =============================================================================
+# ====================================================================
+# Trino Official Helm Chart Values
+# Helm Chart: https://trinodb.github.io/charts/
+# ====================================================================
+
 image:
   repository: trinodb/trino
-  tag: "471"
+  tag: "479" # Aligned with Chart app version 479
 
 server:
-  workers: 1          # 1 worker = 3 vCPU / 6 Gi; coordinator = 1 vCPU / 2 Gi
+  workers: 2   # Default for production-like dev
+  node:
+    environment: production
+  log:
+    trino:
+      level: INFO
+  etcFiles:
+    click_events.json: |
+      {
+        "tableName": "click_events",
+        "schemaName": "default",
+        "topicName": "click_events",
+        "message": {
+          "dataFormat": "json",
+          "fields": [
+            {
+              "name": "id",
+              "mapping": "id",
+              "type": "BIGINT"
+            },
+            {
+              "name": "user_id",
+              "mapping": "user_id",
+              "type": "BIGINT"
+            },
+            {
+              "name": "sequence_number",
+              "mapping": "sequence_number",
+              "type": "INTEGER"
+            },
+            {
+              "name": "session_id",
+              "mapping": "session_id",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "ip_address",
+              "mapping": "ip_address",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "city",
+              "mapping": "city",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "state",
+              "mapping": "state",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "postal_code",
+              "mapping": "postal_code",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "browser",
+              "mapping": "browser",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "traffic_source",
+              "mapping": "traffic_source",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "uri",
+              "mapping": "uri",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "event_type",
+              "mapping": "event_type",
+              "type": "VARCHAR"
+            },
+            {
+              "name": "created_at",
+              "mapping": "created_at",
+              "type": "VARCHAR"
+            }
+          ]
+        }
+      }
 
-# ── Coordinator ──────────────────────────────────────────────────────────────
-coordinator:
-  jvm:
-    maxHeapSize: "1500M"
-    gcMethod:
-      type: "UseG1GC"
-      g1:
-        heapRegionSize: "32M"
-  config:
-    memory:
-      heapHeadroomPerNode: "256MB"
-    query:
-      maxMemory: "1GB"
-      maxMemoryPerNode: "1GB"
-  resources:
-    requests:
-      cpu: "1000m"
-      memory: "2Gi"
-    limits:
-      cpu: "1000m"
-      memory: "2Gi"
-  nodeSelector:
-    role: infra
-
-# ── Worker ────────────────────────────────────────────────────────────────────
-worker:
-  jvm:
-    maxHeapSize: "5G"
-    gcMethod:
-      type: "UseG1GC"
-      g1:
-        heapRegionSize: "32M"
-  config:
-    memory:
-      heapHeadroomPerNode: "512MB"
-    query:
-      # Allow each query to use up to 5 Gi on this node.
-      maxMemoryPerNode: "5GB"
-  resources:
-    requests:
-      cpu: "3000m"
-      memory: "6Gi"
-    limits:
-      cpu: "3000m"
-      memory: "6Gi"
-  nodeSelector:
-    role: compute
-  tolerations:
-    - key: "cloud.google.com/gke-spot"
-      operator: "Equal"
-      value: "true"
-      effect: "NoSchedule"
-
-# ── Catalogs ──────────────────────────────────────────────────────────────────
-# catalog.iceberg uses the same Hive Metastore URI and MinIO endpoint
-# as the Spark benchmark so both engines read identical Iceberg snapshots.
-additionalCatalogs:
-  iceberg: |
-    connector.name=iceberg
-    iceberg.catalog.type=hive_metastore
-    hive.metastore.uri=thrift://hive-metastore:9083
-    hive.s3.endpoint=http://minio:9000
-    hive.s3.path-style-access=true
-    hive.s3.ssl.enabled=false
-    hive.s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
-    hive.s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
-    # Statistics for CBO — match ANALYZE step in prepare_tpcds_data.py
-    iceberg.table-statistics-enabled=true
-    # Pushdown
-    iceberg.pushdown-filter-enabled=true
-
-  tpcds: |
-    connector.name=tpcds
-    tpcds.splits-per-node=4
-
-# Expose MinIO credentials as env vars consumed by the catalog config above.
-secretMounts:
-  - name: spark-minio-secret
-    secretName: spark-minio-secret
-    path: /etc/trino/secrets
-
+# Inject secrets via Environment Variables from K8s Secret
 env:
   - name: MINIO_ACCESS_KEY
     valueFrom:
@@ -108,3 +104,111 @@ env:
       secretKeyRef:
         name: spark-minio-secret
         key: MINIO_SECRET_KEY
+
+coordinator:
+  jvm:
+    maxHeapSize: "3G"   # Reduced for infra node stability (32GB total node RAM)
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  resources:
+    requests:
+      memory: "3.5Gi"
+      cpu: "200m"
+    limits:
+      memory: "6Gi"
+      cpu: "2"
+  nodeSelector:
+    role: infra         # COORDINATOR MUST BE ON INFRA (ON-DEMAND) NODE
+  # No tolerations needed for infra node
+  terminationGracePeriodSeconds: 15
+
+worker:
+  jvm:
+    maxHeapSize: "8G"  # Higher heap for workers on Spot nodes
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  resources:
+    requests:
+      memory: "9Gi"
+      cpu: "1"
+    limits:
+      memory: "12Gi"
+      cpu: "4"
+  nodeSelector: {}
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - query
+            - compute
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: In
+            values:
+            - worker
+        topologyKey: "kubernetes.io/hostname"
+  tolerations:
+    - key: "cloud.google.com/gke-spot"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  terminationGracePeriodSeconds: 15
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Define catalogs dynamically
+# NOTE: Trino 471 supports Env var interpolation if enabled. 
+# For now, using standard properties with a note for learning.
+additionalCatalogs:
+  catalog_iceberg: |
+    connector.name=iceberg
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://gravitino:9001/iceberg/
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio:9000
+    s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    s3.path-style-access=true
+    s3.region=us-east-1
+  iceberg_hive: |
+    connector.name=iceberg
+    iceberg.catalog.type=hive_metastore
+    hive.metastore.uri=thrift://hive-metastore:9083
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio:9000
+    s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    s3.path-style-access=true
+    s3.region=us-east-1
+  hive: |
+    connector.name=hive
+    hive.metastore.uri=thrift://hive-metastore:9083
+    fs.native-s3.enabled=true
+    s3.endpoint=http://minio:9000
+    s3.aws-access-key=${ENV:MINIO_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:MINIO_SECRET_KEY}
+    s3.path-style-access=true
+    s3.region=us-east-1
+  kafka: |
+    connector.name=kafka
+    kafka.nodes=data-platform-kafka-bootstrap:9092
+    kafka.table-description-dir=/etc/trino
+    kafka.hide-internal-columns=false
+  postgres_source: |
+    connector.name=postgresql
+    connection-url=jdbc:postgresql://postgres-source:5432/thelook_db
+    connection-user=db_user
+    connection-password=db_password

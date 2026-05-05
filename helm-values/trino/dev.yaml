@@ -138,8 +138,26 @@ worker:
     limits:
       memory: "12Gi"
       cpu: "4"
-  nodeSelector:
-    role: query         # WORKERS ON SPOT NODES
+  nodeSelector: {}
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - query
+            - compute
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: In
+            values:
+            - worker
+        topologyKey: "kubernetes.io/hostname"
   tolerations:
     - key: "cloud.google.com/gke-spot"
       operator: "Equal"
