@@ -76,27 +76,27 @@ class _QueryMetrics:
             }
 
 def _get_rss_mb() -> float:
-    """Lấy lượng RAM thực tế đang chiếm dụng (Resident Set Size)."""
-    # 1. /proc/self/status -> VmRSS (Chính xác nhất trên Linux)
+    """Lấy lượng RAM thực tế của TOÀN BỘ Container (bao gồm Python + JVM)."""
+    # 1. Cgroup v2 (Phổ biến trên K8s hiện đại)
+    try:
+        with open('/sys/fs/cgroup/memory.current', 'r') as f:
+            return float(f.read().strip()) / (1024 * 1024)
+    except:
+        pass
+
+    # 2. Cgroup v1 (Phổ biến trên các node cũ)
+    try:
+        with open('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'r') as f:
+            return float(f.read().strip()) / (1024 * 1024)
+    except:
+        pass
+
+    # 3. Fallback: /proc/self/status -> VmRSS (Chỉ lấy được tiến trình Python)
     try:
         with open('/proc/self/status', 'r') as f:
             for line in f:
                 if line.startswith('VmRSS:'):
                     return float(line.split()[1]) / 1024.0  # KB -> MB
-    except:
-        pass
-
-    # 2. /proc/self/statm
-    try:
-        with open('/proc/self/statm', 'r') as f:
-            res_pages = int(f.read().split()[1])
-            return res_pages * os.sysconf('SC_PAGE_SIZE') / (1024 * 1024)
-    except:
-        pass
-
-    # 3. resource.getrusage (Cung cấp MaxRSS tích lũy)
-    try:
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
     except:
         pass
 
