@@ -297,7 +297,7 @@ def main() -> None:
                 if listener_ok:
                     metrics.reset()
 
-                rows, wall, status, err, mem_used = run_query(spark, sql)
+                rows, wall, status, err, peak_mem_mb = run_query(spark, sql)
 
                 m = metrics.snapshot() if listener_ok else {"peak_memory_bytes": 0,
                                                              "spill_bytes": 0,
@@ -311,9 +311,9 @@ def main() -> None:
                     query_id=f"spark-local-{query_name}-{run_label}",
                     status=status,
                     wall_time_seconds=wall,
-                    peak_memory_bytes=mem_used,
-                    spill_bytes=m["spill_bytes"],
-                    cpu_time_millis=m["cpu_time_millis"],
+                    peak_memory_bytes=int(peak_mem_mb * 1024 * 1024), 
+                    spill_bytes=0,
+                    cpu_time_millis=0,
                     result_hash=stable_hash(rows) if rows else "",
                     row_count=len(rows),
                     error_message=err,
