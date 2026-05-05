@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import os
 import time
+import threading
+import resource
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -73,85 +75,83 @@ class _QueryMetrics:
                 "cpu_time_millis": int(self._cpu_ns // 1_000_000),
             }
 
-import threading
+def _get_rss_mb() -> float:
+    """Lấy lượng RAM thực tế đang chiếm dụng (Resident Set Size)."""
+    # 1. /proc/self/status -> VmRSS (Chính xác nhất trên Linux)
+    try:
+        with open('/proc/self/status', 'r') as f:
+            for line in f:
+                if line.startswith('VmRSS:'):
+                    return float(line.split()[1]) / 1024.0  # KB -> MB
+    except:
+        pass
+
+    # 2. /proc/self/statm
+    try:
+        with open('/proc/self/statm', 'r') as f:
+            res_pages = int(f.read().split()[1])
+            return res_pages * os.sysconf('SC_PAGE_SIZE') / (1024 * 1024)
+    except:
+        pass
+
+    # 3. resource.getrusage (Cung cấp MaxRSS tích lũy)
+    try:
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+    except:
+        pass
+
+    return 0.0
+
 
 class MemoryMonitor:
-    def __init__(self):
-        self.keep_running = False
-        self.peak_memory_mb = 0
-
-    def _get_current_memory(self):
-        """Đọc RAM trực tiếp từ file hệ thống của Kubernetes Container"""
-        try:
-            # Dành cho Kubernetes dùng Cgroup v2 (phiên bản mới)
-            if os.path.exists('/sys/fs/cgroup/memory.current'):
-                with open('/sys/fs/cgroup/memory.current', 'r') as f:
-                    return int(f.read().strip()) / (1024 * 1024)
-            # Dành cho Kubernetes dùng Cgroup v1 (phiên bản cũ)
-            elif os.path.exists('/sys/fs/cgroup/memory/memory.usage_in_bytes'):
-                with open('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'r') as f:
-                    return int(f.read().strip()) / (1024 * 1024)
-        except Exception:
-            pass
-        return 0
+    """Thread chạy ngầm để bắt giá trị đỉnh (Peak RSS) trong lúc truy vấn chạy."""
+    def __init__(self, interval: float = 0.1):
+        self.interval = interval
+        self.peak_mb = 0.0
+        self._stop_event = threading.Event()
+        self._thread = None
 
     def _monitor(self):
-        while self.keep_running:
-            current = self._get_current_memory()
-            if current > self.peak_memory_mb:
-                self.peak_memory_mb = current
-            time.sleep(0.1) # Quét 10 lần mỗi giây
+        while not self._stop_event.is_set():
+            current = _get_rss_mb()
+            if current > self.peak_mb:
+                self.peak_mb = current
+            time.sleep(self.interval)
 
     def start(self):
-        self.keep_running = True
-        self.peak_memory_mb = self._get_current_memory()
-        self.thread = threading.Thread(target=self._monitor)
-        self.thread.start()
+        self.peak_mb = _get_rss_mb()
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._monitor, daemon=True)
+        self._thread.start()
 
-    def stop(self):
-        self.keep_running = False
-        self.thread.join()
-        return self.peak_memory_mb
+    def stop(self) -> float:
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        # Kiểm tra lần cuối sau khi query xong
+        final = _get_rss_mb()
+        return max(self.peak_mb, final)
 
 
 def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
     """
-    Attach a Java SparkListener that calls back into Python via Py4J.
-    Uses the internal SparkContext._jvm interface so no extra JARs needed.
+    Đính kèm SparkListener để lấy metrics chi tiết của Spark (spill, cpu).
+    Nếu lỗi do Py4J không hỗ trợ kế thừa Interface, sẽ bỏ qua và dùng RSS monitor.
     """
-    from pyspark import SparkContext
+    try:
+        jvm = sc._jvm
+        jsc = sc._jsc.sc()
 
-    jvm = sc._jvm
-    jsc = sc._jsc.sc()
+        # Thử sử dụng class kế thừa nếu môi trường hỗ trợ
+        class PythonListener(jvm.org.apache.spark.scheduler.SparkListener):
+            def onTaskEnd(self, task_end):
+                tm = task_end.taskMetrics()
+                if tm is not None:
+                    metrics.on_task_end(tm)
 
-    # Build a Java anonymous listener via Py4J's JavaGateway callback server.
-    class PythonListener(jvm.org.apache.spark.scheduler.SparkListenerInterface):
-        def onTaskEnd(self, task_end):  # noqa: N802
-            tm = task_end.taskMetrics()
-            if tm is not None:
-                metrics.on_task_end(tm)
-
-        # Stubbed-out required interface methods
-        def onStageCompleted(self, e): pass
-        def onStageSubmitted(self, e): pass
-        def onTaskStart(self, e): pass
-        def onTaskGettingResult(self, e): pass
-        def onJobStart(self, e): pass
-        def onJobEnd(self, e): pass
-        def onEnvironmentUpdate(self, e): pass
-        def onBlockManagerAdded(self, e): pass
-        def onBlockManagerRemoved(self, e): pass
-        def onUnpersistRDD(self, e): pass
-        def onApplicationStart(self, e): pass
-        def onApplicationEnd(self, e): pass
-        def onExecutorMetricsUpdate(self, e): pass
-        def onExecutorAdded(self, e): pass
-        def onExecutorRemoved(self, e): pass
-        def onBlockUpdated(self, e): pass
-        def onOtherEvent(self, e): pass
-        def onSpeculativeTaskSubmitted(self, e): pass
-
-    jsc.addSparkListener(PythonListener())
+        jsc.addSparkListener(PythonListener())
+    except Exception as e:
+        raise RuntimeError(f"Py4J Listener inheritance failed: {e}")
 
 
 # ─── SparkSession factory ──────────────────────────────────────────────────────
@@ -220,18 +220,11 @@ def _build_spark(env: dict):
 
 
 # ─── Query execution ──────────────────────────────────────────────────────────
-import resource
-def get_memory_usage_mb():
-    """Lấy lượng RAM thực tế (Resident Set Size - RSS) mà toàn bộ tiến trình Python và các tiến trình con (bao gồm JVM của Spark) đang chiếm dụng tại OS level."""
-    # Trả về KB, chia 1024 để ra MB
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
     monitor = MemoryMonitor()
-    
-    # Bắt đầu đo RAM
     monitor.start()
-    
+
     started = time.perf_counter()
     status = "success"
     error_message = ""
@@ -239,14 +232,12 @@ def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
 
     try:
         df = spark.sql(sql)
-        rows = df.collect() 
+        rows = df.collect()
     except Exception as exc:
         status = "failed"
         error_message = str(exc)[:2000]
-        
+
     wall = time.perf_counter() - started
-    
-    # Kết thúc đo RAM và lấy kết quả đỉnh (Peak Memory)
     peak_mem_mb = monitor.stop()
 
     return rows, wall, status, error_message, peak_mem_mb
@@ -311,9 +302,10 @@ def main() -> None:
                     query_id=f"spark-local-{query_name}-{run_label}",
                     status=status,
                     wall_time_seconds=wall,
-                    peak_memory_bytes=int(peak_mem_mb * 1024 * 1024), 
-                    spill_bytes=0,
-                    cpu_time_millis=0,
+                    # Lấy giá trị lớn nhất giữa RAM hệ thống (cgroup) và RAM thực thi của Spark tasks
+                    peak_memory_bytes=max(int(peak_mem_mb * 1024 * 1024), m["peak_memory_bytes"]),
+                    spill_bytes=m["spill_bytes"],
+                    cpu_time_millis=m["cpu_time_millis"],
                     result_hash=stable_hash(rows) if rows else "",
                     row_count=len(rows),
                     error_message=err,
@@ -323,7 +315,7 @@ def main() -> None:
                 print(
                     f"[{done}/{total_queries}] spark {query_name} {run_label} "
                     f"→ {status}  wall={wall:.2f}s  "
-                    f"mem={m['peak_memory_bytes']//1024//1024}MB  "
+                    f"mem={record['peak_memory_bytes']//1024//1024}MB  "
                     f"spill={m['spill_bytes']//1024}KB"
                 )
 

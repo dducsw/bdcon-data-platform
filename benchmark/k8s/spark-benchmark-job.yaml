@@ -114,22 +114,20 @@ spec:
             - |
               set -euo pipefail
 
-              echo "=== Bỏ qua apt-get, cài đặt luôn Python dependencies ==="
-              pip install --quiet pyspark==3.5.3 boto3
+              echo "=== CHỜ CODE TỪ MÁY CỤC BỘ (kubectl cp) ==="
+              # Tạo thư mục đích
+              mkdir -p /tmp/app
 
-              echo "=== Tải trực tiếp code bằng Python (Không cần Git) ==="
-              rm -rf /tmp/app
-              python3 -c "
-              import urllib.request, zipfile, os
-              print('Đang tải file zip từ GitHub...')
-              url = 'https://github.com/dducsw/bdcon-data-platform/archive/refs/heads/dev.zip'
-              urllib.request.urlretrieve(url, '/tmp/repo.zip')
-              print('Đang giải nén...')
-              with zipfile.ZipFile('/tmp/repo.zip', 'r') as zip_ref:
-                  zip_ref.extractall('/tmp/extract')
-              os.rename('/tmp/extract/bdcon-data-platform-dev', '/tmp/app')
-              print('Xong!')
-              "
+              # Chờ cho đến khi file chính xuất hiện (Người dùng sẽ chạy kubectl cp)
+              until [ -f /tmp/app/benchmark/scripts/run_spark_benchmark.py ]; do
+                echo "Đang chờ code tại /tmp/app/benchmark/scripts/run_spark_benchmark.py..."
+                echo "Vui lòng chạy lệnh sau trên máy của bạn:"
+                echo "  kubectl cp benchmark data-platform/$(hostname):/tmp/app/"
+                sleep 5
+              done
+
+              echo "=== CODE ĐÃ SẴN SÀNG ==="
+              pip install --quiet pyspark==3.5.3 boto3
 
               echo "=== Loading config ==="
               set -a

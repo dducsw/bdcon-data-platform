@@ -64,18 +64,21 @@ python -u scripts/run_trino_benchmark.py
 ```
 
 ### 2. Running Spark Benchmark (Inside Cluster)
-**⚠️ WARNING:** Running Spark via port-forward from Windows often fails with `BrokenPipeError` or `WinError 10053`. **Always run inside a Pod.**
+
+**⚠️ WARNING:** To ensure your local code changes and the new memory monitoring logic are applied, use the `kubectl cp` workflow with the provided Job.
 
 ```bash
-# 1. Copy benchmark code to a runner pod
-kubectl cp benchmark data-platform/datagen-runner:/benchmark
+# 1. Deploy the Job (configured to wait for code upload)
+kubectl apply -f benchmark/k8s/spark-benchmark-job.yaml
 
-# 2. Install dependencies in the pod
-kubectl exec -it datagen-runner -n data-platform -- pip install pyhive thrift thrift-sasl pure-sasl
+# 2. Identify the running Pod name
+export SPARK_POD=$(kubectl get pods -n data-platform -l engine=spark --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
 
-# 3. Execute
-kubectl exec -it datagen-runner -n data-platform -- bash -c \
-  "cd /benchmark && python -u scripts/run_spark_benchmark.py"
+# 3. Upload your local 'benchmark' directory to the pod
+kubectl cp benchmark data-platform/${SPARK_POD}:/tmp/app/
+
+# 4. Follow the logs to see progress and memory metrics
+kubectl logs -f job/spark-benchmark-runner -n data-platform
 ```
 
 ---
