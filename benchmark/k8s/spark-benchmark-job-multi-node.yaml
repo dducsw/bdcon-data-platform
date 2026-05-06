@@ -1,5 +1,19 @@
 # =============================================================================
 # spark-benchmark-job.yaml  (Spark-on-Kubernetes distributed mode)
+#
+# Thay đổi so với phiên bản local[4]:
+#   - Driver vẫn chạy IN-PROCESS trong pod này (deploy-mode: client)
+#   - Master chuyển sang k8s://https://kubernetes.default.svc:443
+#   - Executor pods được spawn động trên compute-pool + query-pool
+#   - Pod template ConfigMap mount vào /opt/spark/conf/
+#   - Driver expose port 7078 (RPC) + 7079 (block manager) để executor
+#     kết nối ngược về; port 4040 cho Spark UI
+#   - POD_IP inject từ Downward API để spark.driver.host đúng
+#
+# Resource budget (tương đương Trino):
+#   Driver pod:   2 vCPU / 8 Gi
+#   2 Executors:  4 vCPU / 9g mỗi cái  →  tổng ~10 vCPU / 26 Gi
+#   (điều chỉnh SPARK_EXECUTOR_INSTANCES trong benchmark.env nếu muốn)
 # =============================================================================
 apiVersion: batch/v1
 kind: Job
@@ -18,11 +32,12 @@ spec:
       labels:
         app: benchmark
         engine: spark
-        spark-role: driver
+        spark-role: driver          # dùng cho podAntiAffinity của executor
     spec:
       serviceAccountName: spark-driver
       restartPolicy: Never
 
+      # ── Driver chạy trên compute-pool (không chiếm node infra) ────────────
       nodeSelector:
         role: compute
       tolerations:
@@ -35,11 +50,16 @@ spec:
         - name: results
           persistentVolumeClaim:
             claimName: spark-results-pvc
+        - name: queries
+          configMap:
+            name: tpcds-queries
+        # Mount executor pod template vào /opt/spark/conf/
         - name: executor-pod-template
           configMap:
             name: spark-executor-pod-template
 
       initContainers:
+        # Chờ Hive Metastore sẵn sàng trước khi start SparkSession
         - name: wait-metastore
           image: busybox:1.36
           command:
@@ -58,6 +78,8 @@ spec:
             runAsUser: 0
           imagePullPolicy: IfNotPresent
 
+          # ── Resource budget cho Driver pod ─────────────────────────────────
+          # Driver chỉ cần vừa đủ; phần nặng do executor xử lý.
           resources:
             requests:
               cpu: "2000m"
@@ -66,15 +88,17 @@ spec:
               cpu: "4000m"
               memory: "10Gi"
 
+          # ── Driver phải expose các port này để executor kết nối ngược ──────
           ports:
-            - containerPort: 7078
+            - containerPort: 7078   # spark.driver.port (RPC)
               name: driver-rpc
-            - containerPort: 7079
+            - containerPort: 7079   # spark.blockManager.port
               name: block-manager
-            - containerPort: 4040
+            - containerPort: 4040   # Spark Web UI
               name: spark-ui
 
           env:
+            # ── MinIO credentials (mirror sang executor qua secretKeyRef) ───
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -85,6 +109,9 @@ spec:
                 secretKeyRef:
                   name: spark-minio-secret
                   key: MINIO_SECRET_KEY
+
+            # ── Downward API: pod IP dùng cho spark.driver.host ─────────────
+            # Thiếu cái này executor không biết địa chỉ nào để kết nối driver.
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:
@@ -93,6 +120,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+
+            # ── Spark-on-K8s overrides (ghi đè benchmark.env nếu cần) ───────
             - name: SPARK_MASTER
               value: "k8s://https://kubernetes.default.svc:443"
             - name: K8S_NAMESPACE
@@ -109,12 +138,15 @@ spec:
               value: "4"
             - name: SPARK_DRIVER_MEMORY
               value: "7g"
+            # Path tới executor pod template bên trong container
             - name: SPARK_EXECUTOR_POD_TEMPLATE
               value: "/opt/spark/conf/executor-pod-template.yaml"
 
           volumeMounts:
             - name: results
               mountPath: /benchmark/results
+            - name: queries
+              mountPath: /benchmark/queries
             - name: executor-pod-template
               mountPath: /opt/spark/conf/executor-pod-template.yaml
               subPath: executor-pod-template.yaml
@@ -124,22 +156,28 @@ spec:
             - |
               set -euo pipefail
 
-              echo "=== Installing dependencies ==="
-              apt-get update -qq && apt-get install -y -qq git
-              pip install --quiet pyspark==3.5.3 boto3
+              echo "=== CHỜ CODE TỪ MÁY CỤC BỘ (kubectl cp) ==="
+              mkdir -p /tmp/app
 
-              echo "=== Cloning benchmark harness ==="
-              git clone --depth 1 --branch dev \
-                https://github.com/dducsw/bdcon-data-platform /app
+              until [ -f /tmp/app/benchmark/scripts/run_spark_benchmark.py ]; do
+                echo "Đang chờ code tại /tmp/app/benchmark/scripts/run_spark_benchmark.py..."
+                echo "Vui lòng chạy lệnh sau trên máy của bạn:"
+                echo "  kubectl cp benchmark data-platform/$(hostname):/tmp/app/"
+                sleep 5
+              done
+
+              echo "=== CODE ĐÃ SẴN SÀNG ==="
+              pip install --quiet pyspark==3.5.3 boto3
 
               echo "=== Loading config ==="
               set -a
-              source /app/benchmark/config/benchmark.env
+              source /tmp/app/benchmark/config/benchmark.env
               set +a
 
+              # Env vars được inject bởi K8s sẽ ghi đè giá trị trong file .env
               export RESULTS_DIR=/benchmark/results
 
               echo "=== Driver host: ${MY_POD_IP} ==="
-              echo "=== Starting Spark benchmark (K8s mode, ${SPARK_EXECUTOR_INSTANCES} executors) ==="
-              cd /app
+              echo "=== Starting Spark benchmark (Spark-on-K8s, ${SPARK_EXECUTOR_INSTANCES} executors) ==="
+              cd /tmp/app
               python3 -u benchmark/scripts/run_spark_benchmark.py
