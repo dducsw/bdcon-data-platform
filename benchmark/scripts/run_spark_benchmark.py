@@ -36,7 +36,6 @@ from __future__ import annotations
 import os
 import time
 import threading
-import resource
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -66,6 +65,20 @@ class _QueryMetrics:
             self._peak_mem: int = 0
             self._spill: int = 0
             self._cpu_ns: int = 0
+            self._job_start: int = 0
+            self._job_end: int = 0
+
+    def on_job_start(self, job_start: Any) -> None:
+        with self._lock:
+            ts = job_start.time()
+            if self._job_start == 0 or ts < self._job_start:
+                self._job_start = ts
+
+    def on_job_end(self, job_end: Any) -> None:
+        with self._lock:
+            ts = job_end.time()
+            if ts > self._job_end:
+                self._job_end = ts
 
     def on_task_end(self, task_metrics: Any) -> None:
         with self._lock:
@@ -75,10 +88,15 @@ class _QueryMetrics:
 
     def snapshot(self) -> dict:
         with self._lock:
+            duration_ms = 0
+            if self._job_end > self._job_start > 0:
+                duration_ms = int(self._job_end - self._job_start)
+            
             return {
                 "peak_memory_bytes": self._peak_mem,
                 "spill_bytes": self._spill,
                 "cpu_time_millis": int(self._cpu_ns // 1_000_000),
+                "server_side_duration_ms": duration_ms,
             }
 
 
@@ -139,18 +157,57 @@ class MemoryMonitor:
 
 def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
     try:
-        jvm = sc._jvm
+        from py4j.java_gateway import CallbackServerParameters
+        
+        # 1. Start the callback server on the Python side.
+        # Inside a K8s pod, 127.0.0.1 is the most reliable way for JVM to talk to Python.
+        sc._gateway.start_callback_server(
+            CallbackServerParameters(address='127.0.0.1', port=0)
+        )
+        
+        # 2. Get the actual port picked by the OS
+        python_port = sc._gateway.get_callback_server().get_listening_port()
+        
+        # 3. Inform the JVM side about the correct port.
+        # Some PySpark versions don't automatically update the callback client port.
+        try:
+            sc._gateway.java_gateway_server.resetCallbackClient(
+                sc._gateway.java_gateway_server.getCallbackClient().getAddress(),
+                python_port
+            )
+        except Exception:
+            pass # Best effort if method is missing
+
         jsc = sc._jsc.sc()
 
-        class PythonListener(jvm.org.apache.spark.scheduler.SparkListener):
+        class PythonListener(object):
+            def onJobStart(self, job_start):
+                metrics.on_job_start(job_start)
+
+            def onJobEnd(self, job_end):
+                metrics.on_job_end(job_end)
+
             def onTaskEnd(self, task_end):
                 tm = task_end.taskMetrics()
                 if tm is not None:
                     metrics.on_task_end(tm)
 
+            # Implement common no-op methods to avoid "Connection refused" loops 
+            # for events we don't care about but Spark emits frequently.
+            def onBlockUpdated(self, event): pass
+            def onOtherEvent(self, event): pass
+            def onTaskStart(self, event): pass
+            def onStageSubmitted(self, event): pass
+            def onStageCompleted(self, event): pass
+            def onExecutorMetricsUpdate(self, event): pass
+            def onEnvironmentUpdate(self, event): pass
+            
+            class Java:
+                implements = ["org.apache.spark.scheduler.SparkListenerInterface"]
+
         jsc.addSparkListener(PythonListener())
     except Exception as e:
-        raise RuntimeError(f"Py4J Listener inheritance failed: {e}")
+        raise RuntimeError(f"Py4J Listener proxy failed: {e}")
 
 
 # --- SparkSession factory ----------------------------------------------------
@@ -343,6 +400,9 @@ def main() -> None:
     )
     spark = _build_spark(env)
 
+    app_id = spark.sparkContext.applicationId
+    print(f"  Application ID: {app_id}")
+
     metrics = _QueryMetrics()
     try:
         _attach_listener(spark.sparkContext, metrics)
@@ -376,16 +436,24 @@ def main() -> None:
                     "peak_memory_bytes": 0,
                     "spill_bytes": 0,
                     "cpu_time_millis": 0,
+                    "server_side_duration_ms": 0,
                 }
+
+                # Use server-side duration (from listener) as canonical wall_time
+                # to exclude startup overhead, matching Trino's measurement.
+                # Fall back to client-side wall if listener failed.
+                wall_seconds = wall
+                if m["server_side_duration_ms"] > 0:
+                    wall_seconds = m["server_side_duration_ms"] / 1000.0
 
                 record = make_record(
                     engine="spark",
                     query_name=query_name,
                     run_type="warmup" if is_warmup else "measured",
                     run_number=run_number,
-                    query_id=f"spark-k8s-{query_name}-{run_label}",
+                    query_id=f"{app_id}-{query_name}-{run_label}",
                     status=status,
-                    wall_time_seconds=wall,
+                    wall_time_seconds=wall_seconds,
                     peak_memory_bytes=max(
                         int(peak_mem_mb * 1024 * 1024),
                         m["peak_memory_bytes"],
@@ -400,7 +468,7 @@ def main() -> None:
                 done += 1
                 print(
                     f"[{done}/{total_queries}] spark {query_name} {run_label} "
-                    f"-> {status}  wall={wall:.2f}s  "
+                    f"-> {status}  wall={wall_seconds:.2f}s (client={wall:.2f}s) "
                     f"mem={record['peak_memory_bytes'] // 1024 // 1024}MB  "
                     f"spill={m['spill_bytes'] // 1024}KB"
                 )

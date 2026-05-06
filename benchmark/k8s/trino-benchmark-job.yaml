@@ -53,15 +53,17 @@ spec:
 
       initContainers:
         - name: wait-trino
-          image: busybox:1.36
+          image: trinodb/trino:479
           command:
-            - sh
+            - /bin/bash
             - -c
             - |
-              until wget -qO- http://trino:8080/v1/info | grep -q '"starting":false'; do
-                echo "Waiting for Trino to finish startup …"
+              echo "Waiting for Trino coordinator and 2 workers..."
+              until trino --server http://trino:8080 --user benchmark --execute "SELECT 1 FROM system.runtime.nodes WHERE coordinator = false AND state = 'active' HAVING count(*) = 2" --output-format CSV | grep -q "1"; do
+                echo "Waiting for 2 active workers..."
                 sleep 5
               done
+              echo "Trino cluster ready with 2 workers."
 
       containers:
         - name: trino-benchmark
@@ -95,23 +97,33 @@ spec:
             - |
               set -euo pipefail
 
-              echo "=== Installing git ==="
-              apt-get update && apt-get install -y git
+              echo "=== CHỜ CODE TỪ MÁY CỤC BỘ (kubectl cp) ==="
+              mkdir -p /tmp/app
 
-              echo "=== Installing dependencies ==="
+              until [ -f /tmp/app/benchmark/scripts/run_trino_benchmark.py ]; do
+                echo "Đang chờ code tại /tmp/app/benchmark/scripts/run_trino_benchmark.py..."
+                echo "Vui lòng chạy lệnh sau trên máy của bạn:"
+                echo "  kubectl cp benchmark data-platform/$(hostname):/tmp/app/"
+                sleep 5
+              done
+
+              echo "=== CODE ĐÃ SẴN SÀNG ==="
               pip install --quiet requests
-
-              echo "=== Cloning benchmark harness ==="
-              git clone --depth 1 --branch dev \
-                https://github.com/dducsw/bdcon-data-platform /app
 
               echo "=== Loading config ==="
               set -a
-              source /app/benchmark/config/benchmark.env
+              source /tmp/app/benchmark/config/benchmark.env
               set +a
 
+              # Env vars được inject bởi K8s sẽ ghi đè giá trị trong file .env
               export RESULTS_DIR=/benchmark/results
 
               echo "=== Starting Trino benchmark ==="
-              cd /app
-              python -u benchmark/scripts/run_trino_benchmark.py
+              cd /tmp/app
+              python3 -u benchmark/scripts/run_trino_benchmark.py
+
+              echo "=== BENCHMARK FINISHED ==="
+              echo "Pod is kept alive for 30 minutes for data retrieval."
+              echo "Run this command to sync results to your local machine:"
+              echo "  kubectl cp data-platform/$(hostname):/benchmark/results/raw/trino_results.jsonl benchmark/results/raw/trino_results.jsonl"
+              sleep 1800

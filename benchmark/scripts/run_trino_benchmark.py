@@ -159,6 +159,20 @@ def main() -> None:
     output_file = raw_dir / "trino_results.jsonl"
     output_file.write_text("", encoding="utf-8")
 
+    # Verify worker count
+    try:
+        # Use system.runtime.nodes as /v1/node may return 404 in some Trino versions/configs
+        sql_check = "SELECT count(*) FROM system.runtime.nodes WHERE coordinator = false AND state = 'active'"
+        initial = submit_query(sql_check, env, "worker-check")
+        rows, _, _ = poll_until_done(initial, 30)
+        workers_count = rows[0][0] if rows else 0
+        
+        print(f"Trino cluster: {workers_count} active workers found.")
+        if workers_count != 2:
+            print(f"WARNING: Expected 2 workers, but found {workers_count}. Results may be inconsistent.")
+    except Exception as e:
+        print(f"Warning: Could not verify worker count: {e}")
+
     total_queries = len(query_files) * (warmups + runs)
     done = 0
 

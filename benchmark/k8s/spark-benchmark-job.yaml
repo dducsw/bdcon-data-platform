@@ -143,3 +143,9 @@ spec:
               echo "=== Starting Spark benchmark (K8s mode, ${SPARK_EXECUTOR_INSTANCES} executors) ==="
               cd /app
               python3 -u benchmark/scripts/run_spark_benchmark.py
+
+              echo "=== BENCHMARK FINISHED ==="
+              echo "Pod is kept alive for 30 minutes for data retrieval."
+              echo "Run this command to sync results to your local machine:"
+              echo "  kubectl cp data-platform/$(hostname):/benchmark/results/raw/spark_results.jsonl benchmark/results/raw/spark_results.jsonl"
+              sleep 1800
