@@ -169,6 +169,12 @@ service:
   type: ClusterIP
   port: 8080
 
+additionalConfigProperties:
+  - "query.max-memory-per-node=6GB"
+  - "query.max-memory=12GB"
+  - "query.max-total-memory-per-node=8GB"
+  - "memory.heap-headroom-per-node=1GB"
+
 # Define catalogs dynamically
 # NOTE: Trino 471 supports Env var interpolation if enabled. 
 # For now, using standard properties with a note for learning.
