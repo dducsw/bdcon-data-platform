@@ -289,7 +289,6 @@ def _build_spark(env: dict):
             builder
             .config("spark.kubernetes.executor.label.app", "benchmark")
             .config("spark.kubernetes.executor.label.engine", "spark")
-            .config("spark.kubernetes.executor.label.spark-role", "executor")
         )
 
         print(

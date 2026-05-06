@@ -38,13 +38,12 @@ data:
         # Tránh để 2 executor của cùng 1 job chạy trên cùng node
         # (best-effort, không bắt buộc — xoá nếu cluster ít node)
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 50
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    spark-role: executor
-                topologyKey: "kubernetes.io/hostname"
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  spark-role: executor
+              topologyKey: "kubernetes.io/hostname"
+
 
       # ── Tolerate GKE Spot nodes ───────────────────────────────────────────
       tolerations:
