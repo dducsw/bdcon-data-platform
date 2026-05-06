@@ -164,21 +164,27 @@ def _build_spark(env: dict):
     """
     from pyspark.sql import SparkSession
 
-    cores = env.get("SPARK_DRIVER_CORES", "4")
-    memory = env.get("SPARK_DRIVER_MEMORY", "7g")
-    catalog = env.get("SPARK_CATALOG", "iceberg")
-    schema = env.get("SPARK_SCHEMA", "benchmark_tpcds_sf5")
-    warehouse = env.get("ICEBERG_WAREHOUSE", "s3a://iceberg/lakehouse")
-    metastore_uri = env.get("ICEBERG_URI", "thrift://hive-metastore:9083")
-    minio_endpoint = env.get("MINIO_ENDPOINT", "http://minio:9000")
+    # ── Thông số chung ────────────────────────────────────────────────────────
+    master          = env.get("SPARK_MASTER", "local[4]")
+    driver_cores    = env.get("SPARK_DRIVER_CORES", "4")
+    driver_memory   = env.get("SPARK_DRIVER_MEMORY", "7g")
+    catalog         = env.get("SPARK_CATALOG", "iceberg")
+    schema          = env.get("SPARK_SCHEMA", "benchmark_tpcds_sf5")
+    warehouse       = env.get("ICEBERG_WAREHOUSE", "s3a://iceberg/lakehouse")
+    metastore_uri   = env.get("ICEBERG_URI", "thrift://hive-metastore:9083")
+    minio_endpoint  = env.get("MINIO_ENDPOINT", "http://minio:9000")
+
+    is_k8s = master.startswith("k8s://")
+    print(f"  Spark master: {master}")
 
     builder = (
         SparkSession.builder
         .appName(f"tpcds-benchmark-{schema}")
-        .master(f"local[{cores}]")
-        # ── Memory (mirrors Helm values for Trino worker) ────────────────────
-        .config("spark.driver.memory", memory)
-        .config("spark.driver.cores", cores)
+        .master(master)
+        # ── Driver resources ─────────────────────────────────────────────────
+        .config("spark.driver.memory", driver_memory)
+        .config("spark.driver.cores", driver_cores)
+
         # ── Adaptive Query Execution (always on) ────────────────────────────
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
@@ -212,6 +218,85 @@ def _build_spark(env: dict):
         .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
         .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
     )
+
+    # ── Cấu hình riêng cho Spark-on-Kubernetes ────────────────────────────────
+    if is_k8s:
+        executor_instances = env.get("SPARK_EXECUTOR_INSTANCES", "2")
+        executor_cores     = env.get("SPARK_EXECUTOR_CORES", "4")
+        executor_memory    = env.get("SPARK_EXECUTOR_MEMORY", "9g")
+        k8s_namespace      = env.get("K8S_NAMESPACE", "data-platform")
+        spark_image        = env.get("SPARK_IMAGE",
+                                     "apache/spark:3.5.3-scala2.12-java17-python3-ubuntu")
+        executor_template  = env.get("SPARK_EXECUTOR_POD_TEMPLATE", "")
+
+        # Driver host phải là pod IP (inject bởi Downward API trong Job YAML).
+        # Nếu không set, executor pods không biết địa chỉ để kết nối ngược về.
+        driver_host = os.environ.get("MY_POD_IP", "")
+        if not driver_host:
+            # Fallback: đọc từ /etc/hostname → không dùng "localhost"
+            try:
+                import socket
+                driver_host = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                driver_host = "127.0.0.1"
+        print(f"  Driver host (MY_POD_IP): {driver_host}")
+
+        builder = (
+            builder
+            # ── K8s cơ bản ──────────────────────────────────────────────────
+            .config("spark.kubernetes.namespace", k8s_namespace)
+            .config("spark.kubernetes.container.image", spark_image)
+            .config("spark.kubernetes.container.image.pullPolicy", "IfNotPresent")
+            .config("spark.kubernetes.authenticate.driver.serviceAccountName",
+                    "spark-driver")
+            # ── Driver networking (executor kết nối ngược về driver) ─────────
+            .config("spark.driver.host", driver_host)
+            .config("spark.driver.port", "7078")
+            .config("spark.blockManager.port", "7079")
+            # ── Executor sizing ──────────────────────────────────────────────
+            .config("spark.executor.instances", executor_instances)
+            .config("spark.executor.cores", executor_cores)
+            .config("spark.executor.memory", executor_memory)
+            # ── Executor pod template (nodeAffinity cho compute + query) ─────
+            # File này được mount vào pod qua ConfigMap trong Job YAML
+        )
+
+        if executor_template:
+            builder = builder.config(
+                "spark.kubernetes.executor.podTemplateFile", executor_template
+            )
+            print(f"  Executor pod template: {executor_template}")
+
+        # ── Truyền MinIO credentials vào executor pods qua K8s Secret ────────
+        # Format: spark.kubernetes.executor.secretKeyRef.<ENV>=<secret>:<key>
+        builder = (
+            builder
+            .config(
+                "spark.kubernetes.executor.secretKeyRef.AWS_ACCESS_KEY_ID",
+                "spark-minio-secret:MINIO_ACCESS_KEY",
+            )
+            .config(
+                "spark.kubernetes.executor.secretKeyRef.AWS_SECRET_ACCESS_KEY",
+                "spark-minio-secret:MINIO_SECRET_KEY",
+            )
+        )
+
+        # ── Label executor pods để dễ theo dõi trên K8s dashboard ────────────
+        builder = (
+            builder
+            .config("spark.kubernetes.executor.label.app", "benchmark")
+            .config("spark.kubernetes.executor.label.engine", "spark")
+        )
+
+
+        print(
+            f"  K8s config: namespace={k8s_namespace}, image={spark_image}\n"
+            f"  Executors: {executor_instances}x ({executor_cores} cores / {executor_memory})"
+        )
+    else:
+        # local mode: không cần cấu hình gì thêm
+        print(f"  Running in local mode with {driver_cores} cores")
+
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     # Set default catalog+schema so queries don't need fully-qualified names.

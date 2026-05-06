@@ -1,0 +1,63 @@
+# =============================================================================
+# spark-executor-template-cm.yaml
+#
+# ConfigMap chứa pod template cho Spark executor pods.
+#
+# Executor được phép chạy trên node có role=compute HOẶC role=query,
+# đồng thời tolerate Spot node taint của GKE để tận dụng tài nguyên rẻ hơn.
+#
+# Tại sao cần pod template thay vì nodeSelector đơn giản?
+# spark.kubernetes.executor.node.selector.KEY=VALUE chỉ nhận 1 giá trị.
+# nodeAffinity với operator: In cho phép nhiều giá trị (compute + query).
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-executor-pod-template
+  namespace: data-platform
+  labels:
+    app: benchmark
+    engine: spark
+data:
+  executor-pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      # ── Node placement: compute-pool hoặc query-pool ──────────────────────
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - compute
+                      - query
+        # Tránh để 2 executor của cùng 1 job chạy trên cùng node
+        # (best-effort, không bắt buộc — xoá nếu cluster ít node)
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  spark-role: executor
+              topologyKey: "kubernetes.io/hostname"
+
+
+      # ── Tolerate GKE Spot nodes ───────────────────────────────────────────
+      tolerations:
+        - key: "cloud.google.com/gke-spot"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      # ── Container spec (Spark sẽ merge thêm resources, env, volumeMounts) ─
+      containers:
+        - name: spark
+          # Spark tự điền image, resources, env từ SparkSession config;
+          # chỉ cần khai báo container name "spark" ở đây.
+          env:
+            # Đảm bảo executor có cùng timezone với driver
+            - name: TZ
+              value: "UTC"
