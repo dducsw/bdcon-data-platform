@@ -37,9 +37,10 @@ spec:
       serviceAccountName: spark-driver
       restartPolicy: Never
 
-      # ── Driver chạy trên compute-pool (không chiếm node infra) ────────────
+      # ── Driver chạy trên infra-pool (để nhường node compute cho executor) ──
       nodeSelector:
-        role: compute
+        cloud.google.com/gke-nodepool: infra-pool
+
       tolerations:
         - key: "cloud.google.com/gke-spot"
           operator: "Equal"
@@ -143,6 +144,7 @@ spec:
               value: "/opt/spark/conf/executor-pod-template.yaml"
 
           volumeMounts:
+
             - name: results
               mountPath: /benchmark/results
             - name: queries
