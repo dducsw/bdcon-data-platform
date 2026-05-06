@@ -51,35 +51,85 @@ Located in `config/benchmark.env`. Key variables:
 
 ## 🚀 Execution Guide
 
-### 1. Running Trino Benchmark (Local Machine)
+### 1. Running Trino Benchmark
+
+#### Option A: Run from Local Machine (Development)
 Trino's REST API is stable over network tunnels.
 ```bash
 # 1. Forward port
 kubectl port-forward svc/trino 8081:8080 -n data-platform
 
-# 2. Update .env: TRINO_BASE_URL=http://localhost:8081
+# 2. Update benchmark.env: TRINO_BASE_URL=http://localhost:8081
 
 # 3. Run
 python -u scripts/run_trino_benchmark.py
 ```
 
-### 2. Running Spark Benchmark (Inside Cluster)
+#### Option B: Run Inside Cluster (Production/Distributed)
+Use this mode to minimize network latency between the runner and the Trino coordinator.
 
-**⚠️ WARNING:** To ensure your local code changes and the new memory monitoring logic are applied, use the `kubectl cp` workflow with the provided Job.
+1. **Scale up Trino workers**:
+   ```bash
+   kubectl scale deployment trino-worker -n data-platform --replicas=2
+   ```
 
-```bash
-# 1. Deploy the Job (configured to wait for code upload)
-kubectl apply -f benchmark/k8s/spark-benchmark-job.yaml
+2. **Wait for workers to be Ready**:
+   ```bash
+   kubectl get pods -n data-platform -l app=trino,component=worker
+   ```
 
-# 2. Identify the running Pod name
-export SPARK_POD=$(kubectl get pods -n data-platform -l engine=spark --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+3. **Deploy the Trino Benchmark Job**:
+   ```bash
+   kubectl apply -f benchmark/k8s/trino-benchmark-job.yaml
+   ```
 
-# 3. Upload your local 'benchmark' directory to the pod
-kubectl cp benchmark data-platform/${SPARK_POD}:/tmp/app/
+4. **Monitor logs**:
+   ```bash
+   kubectl logs -n data-platform -l job-name=trino-benchmark-runner -f
+   ```
 
-# 4. Follow the logs to see progress and memory metrics
-kubectl logs -f job/spark-benchmark-runner -n data-platform
-```
+
+### 2. Running Spark Benchmark (Distributed Cluster Mode)
+
+To ensure a fair comparison with Trino, Spark is configured to run in distributed mode with 2 executors on separate physical nodes.
+
+#### Pre-requisites: Resource Preparation
+Because the cluster nodes have limited capacity (4 cores/node), you must ensure enough space is available:
+
+1. **Increase Namespace Quota**:
+   ```bash
+   kubectl patch resourcequota data-platform-quota -n data-platform --patch '{"spec": {"hard": {"limits.cpu": "100", "requests.cpu": "64"}}}'
+   ```
+2. **Free up Compute Nodes**: Scale down Trino workers to avoid CPU contention:
+   ```bash
+   kubectl scale deployment trino-worker -n data-platform --replicas=0
+   ```
+
+#### Execution Workflow
+Use the "wait for code" pattern to apply local changes without rebuilding images:
+
+1. **Deploy the multi-node Job**:
+   ```bash
+   kubectl apply -f benchmark/k8s/spark-benchmark-job-multi-node.yaml
+   ```
+
+2. **Wait for Pod to reach `Running` status**, then identify the pod name:
+   ```bash
+   # Power shell
+   $SPARK_POD = (kubectl get pods -n data-platform -l job-name=spark-benchmark-runner -o jsonpath='{.items[0].metadata.name}')
+   ```
+
+3. **Upload the local code** to the pod:
+   ```bash
+   kubectl cp benchmark data-platform/${SPARK_POD}:/tmp/app/ -c spark-benchmark
+   ```
+
+4. **Monitor logs**:
+   ```bash
+   kubectl logs -n data-platform $SPARK_POD -f
+   ```
+
+---
 
 ---
 

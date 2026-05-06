@@ -3,33 +3,33 @@ run_spark_benchmark.py
 ======================
 Runs TPC-DS queries via SparkSession.
 
-Hỗ trợ 2 chế độ qua biến môi trường SPARK_MASTER:
-  - local[N]                              : single-pod (phát triển, debug)
+Supports 2 modes via SPARK_MASTER environment variable:
+  - local[N]                              : single-pod (development, debug)
   - k8s://https://kubernetes.default.svc:443 : Spark-on-K8s (production benchmark)
 
-Khi dùng chế độ K8s:
-  - Driver chạy in-process trong pod này (deploy-mode: client)
-  - Executor pods được spawn động trên compute-pool + query-pool
-  - spark.driver.host lấy từ MY_POD_IP (inject bởi Downward API trong Job YAML)
-  - Credentials MinIO được truyền vào executor qua K8s secret reference
+In K8s mode:
+  - Driver runs in-process in this pod (deploy-mode: client)
+  - Executor pods are spawned dynamically on compute-pool + query-pool
+  - spark.driver.host is retrieved from MY_POD_IP (injected by Downward API in Job YAML)
+  - MinIO credentials are passed to executors via K8s secret references
 
 Architecture (K8s mode)
 -----------------------
-  [Driver pod - compute node]
-       │  spawn
-       ▼
-  [Executor pod 1 - compute/query node]  ←── S3A → MinIO
-  [Executor pod 2 - compute/query node]  ←── S3A → MinIO
-       │
-       └── kết quả ghi về Driver → JSONL trên PVC
+  [Driver pod - infra node]
+       |  spawn
+       v
+  [Executor pod 1 - compute node]  <-- S3A -> MinIO
+  [Executor pod 2 - query node]    <-- S3A -> MinIO
+       |
+       L-- results reported back to Driver -> JSONL on PVC
 
 Metrics collected per query
 ---------------------------
-wall_time_seconds   perf_counter delta (driver-side, bao gồm network + shuffle)
-peak_memory_bytes   max của: cgroup RSS monitor (toàn container) vs SparkListener
-spill_bytes         sum memoryBytesSpilled + diskBytesSpilled qua SparkListener
-cpu_time_millis     sum executorCpuTime (ns → ms) qua SparkListener
-result_hash         stable_hash của fetched rows (sorted, normalized)
+wall_time_seconds   perf_counter delta (driver-side, includes network + shuffle)
+peak_memory_bytes   max of: cgroup RSS monitor (container total) vs SparkListener
+spill_bytes         sum of memoryBytesSpilled + diskBytesSpilled via SparkListener
+cpu_time_millis     sum of executorCpuTime (ns -> ms) via SparkListener
+result_hash         stable_hash of fetched rows (sorted, normalized)
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from common import (
 )
 
 
-# ─── Spark listener for per-query metrics ─────────────────────────────────────
+# --- Spark listener for per-query metrics ------------------------------------
 
 class _QueryMetrics:
     """Accumulates stage/task metrics for the most-recently-started query."""
@@ -83,7 +83,7 @@ class _QueryMetrics:
 
 
 def _get_rss_mb() -> float:
-    """Lấy lượng RAM thực tế của TOÀN BỘ Container (bao gồm Python + JVM)."""
+    """Retrieves actual RAM usage of the ENTIRE Container (Python + JVM)."""
     # 1. Cgroup v2
     try:
         with open('/sys/fs/cgroup/memory.current', 'r') as f:
@@ -108,7 +108,7 @@ def _get_rss_mb() -> float:
 
 
 class MemoryMonitor:
-    """Thread chạy ngầm để bắt giá trị đỉnh (Peak RSS) trong lúc truy vấn chạy."""
+    """Background thread to capture Peak RSS during query execution."""
 
     def __init__(self, interval: float = 0.1):
         self.interval = interval
@@ -153,22 +153,16 @@ def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
         raise RuntimeError(f"Py4J Listener inheritance failed: {e}")
 
 
-# ─── SparkSession factory ──────────────────────────────────────────────────────
+# --- SparkSession factory ----------------------------------------------------
 
 def _build_spark(env: dict):
     """
     Build SparkSession.
-
-    Chế độ được điều khiển bởi env["SPARK_MASTER"]:
-      local[N]          → single-pod, dùng khi debug / CI
-      k8s://...         → Spark-on-Kubernetes, dùng cho benchmark thực tế
-
-    Khi K8s mode, executor pods được spawn trên compute-pool + query-pool
-    thông qua pod template đã mount sẵn trong Job YAML.
+    Execution mode is controlled by env['SPARK_MASTER'].
     """
     from pyspark.sql import SparkSession
 
-    # ── Thông số chung ────────────────────────────────────────────────────────
+    # --- Configuration -------------------------------------------------------
     master          = env.get("SPARK_MASTER", "local[4]")
     driver_cores    = env.get("SPARK_DRIVER_CORES", "4")
     driver_memory   = env.get("SPARK_DRIVER_MEMORY", "7g")
@@ -185,14 +179,14 @@ def _build_spark(env: dict):
         SparkSession.builder
         .appName(f"tpcds-benchmark-{schema}")
         .master(master)
-        # ── Driver resources ─────────────────────────────────────────────────
+        # --- Driver resources ------------------------------------------------
         .config("spark.driver.memory", driver_memory)
         .config("spark.driver.cores", driver_cores)
-        # ── AQE (luôn bật) ───────────────────────────────────────────────────
+        # --- AQE (Enabled) ---------------------------------------------------
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .config("spark.sql.adaptive.skewJoin.enabled", "true")
-        # ── Iceberg catalog ──────────────────────────────────────────────────
+        # --- Iceberg catalog -------------------------------------------------
         .config("spark.sql.extensions",
                 "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .config(f"spark.sql.catalog.{catalog}",
@@ -200,7 +194,7 @@ def _build_spark(env: dict):
         .config(f"spark.sql.catalog.{catalog}.type", "hive")
         .config(f"spark.sql.catalog.{catalog}.uri", metastore_uri)
         .config(f"spark.sql.catalog.{catalog}.warehouse", warehouse)
-        # ── S3A / MinIO ──────────────────────────────────────────────────────
+        # --- S3A / MinIO -----------------------------------------------------
         .config("spark.hadoop.fs.s3a.endpoint", minio_endpoint)
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
@@ -208,21 +202,21 @@ def _build_spark(env: dict):
                 "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config("spark.hadoop.fs.s3a.aws.credentials.provider",
                 "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
-        # ── Hive Metastore ───────────────────────────────────────────────────
+        # --- Hive Metastore --------------------------------------------------
         .config("spark.sql.catalogImplementation", "hive")
         .config("spark.hadoop.hive.metastore.uris", metastore_uri)
-        # ── Iceberg / Hadoop / AWS jars ──────────────────────────────────────
+        # --- Dependencies ----------------------------------------------------
         .config("spark.jars.packages",
                 "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,"
                 "org.apache.hadoop:hadoop-aws:3.3.4,"
                 "com.amazonaws:aws-java-sdk-bundle:1.12.262")
         .config("spark.jars.ivy", "/tmp/.ivy2")
-        # ── Serialisation ────────────────────────────────────────────────────
+        # --- Serialisation ---------------------------------------------------
         .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
         .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
     )
 
-    # ── Cấu hình riêng cho Spark-on-Kubernetes ────────────────────────────────
+    # --- Spark-on-Kubernetes Specific Config ---------------------------------
     if is_k8s:
         executor_instances = env.get("SPARK_EXECUTOR_INSTANCES", "2")
         executor_cores     = env.get("SPARK_EXECUTOR_CORES", "4")
@@ -232,11 +226,9 @@ def _build_spark(env: dict):
                                      "apache/spark:3.5.3-scala2.12-java17-python3-ubuntu")
         executor_template  = env.get("SPARK_EXECUTOR_POD_TEMPLATE", "")
 
-        # Driver host phải là pod IP (inject bởi Downward API trong Job YAML).
-        # Nếu không set, executor pods không biết địa chỉ để kết nối ngược về.
+        # Driver host must be the pod IP (injected by Downward API).
         driver_host = os.environ.get("MY_POD_IP", "")
         if not driver_host:
-            # Fallback: đọc từ /etc/hostname → không dùng "localhost"
             try:
                 import socket
                 driver_host = socket.gethostbyname(socket.gethostname())
@@ -246,22 +238,24 @@ def _build_spark(env: dict):
 
         builder = (
             builder
-            # ── K8s cơ bản ──────────────────────────────────────────────────
+            # --- K8s Basics --------------------------------------------------
             .config("spark.kubernetes.namespace", k8s_namespace)
             .config("spark.kubernetes.container.image", spark_image)
             .config("spark.kubernetes.container.image.pullPolicy", "IfNotPresent")
             .config("spark.kubernetes.authenticate.driver.serviceAccountName",
                     "spark-driver")
-            # ── Driver networking (executor kết nối ngược về driver) ─────────
+            # --- Driver networking -------------------------------------------
             .config("spark.driver.host", driver_host)
             .config("spark.driver.port", "7078")
             .config("spark.blockManager.port", "7079")
-            # ── Executor sizing ──────────────────────────────────────────────
+            # --- Executor sizing ---------------------------------------------
             .config("spark.executor.instances", executor_instances)
             .config("spark.executor.cores", executor_cores)
             .config("spark.executor.memory", executor_memory)
-            # ── Executor pod template (nodeAffinity cho compute + query) ─────
-            # File này được mount vào pod qua ConfigMap trong Job YAML
+            # --- Resources Limits/Requests (Matching Trino) ------------------
+            .config("spark.kubernetes.executor.request.cores", "1")
+            .config("spark.kubernetes.executor.limit.cores", executor_cores)
+            .config("spark.kubernetes.executor.limit.memory", executor_memory)
         )
 
         if executor_template:
@@ -270,8 +264,7 @@ def _build_spark(env: dict):
             )
             print(f"  Executor pod template: {executor_template}")
 
-        # ── Truyền MinIO credentials vào executor pods qua K8s Secret ────────
-        # Format: spark.kubernetes.executor.secretKeyRef.<ENV>=<secret>:<key>
+        # --- Pass MinIO credentials to executors via K8s Secret --------------
         builder = (
             builder
             .config(
@@ -284,7 +277,7 @@ def _build_spark(env: dict):
             )
         )
 
-        # ── Label executor pods để dễ theo dõi trên K8s dashboard ────────────
+        # --- Executor labels -------------------------------------------------
         builder = (
             builder
             .config("spark.kubernetes.executor.label.app", "benchmark")
@@ -296,7 +289,6 @@ def _build_spark(env: dict):
             f"  Executors: {executor_instances}x ({executor_cores} cores / {executor_memory})"
         )
     else:
-        # local mode: không cần cấu hình gì thêm
         print(f"  Running in local mode with {driver_cores} cores")
 
     spark = builder.getOrCreate()
@@ -305,7 +297,7 @@ def _build_spark(env: dict):
     return spark
 
 
-# ─── Query execution ──────────────────────────────────────────────────────────
+# --- Query execution ---------------------------------------------------------
 
 def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
     monitor = MemoryMonitor()
@@ -329,7 +321,7 @@ def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
     return rows, wall, status, error_message, peak_mem_mb
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# --- Main --------------------------------------------------------------------
 
 def main() -> None:
     env = load_env()
@@ -345,7 +337,7 @@ def main() -> None:
 
     master = env.get("SPARK_MASTER", "local[4]")
     print(
-        f"Building SparkSession …\n"
+        f"Building SparkSession ...\n"
         f"  master={master}\n"
         f"  driver={env.get('SPARK_DRIVER_CORES', 4)} cores / {env.get('SPARK_DRIVER_MEMORY', '7g')}"
     )
@@ -408,13 +400,13 @@ def main() -> None:
                 done += 1
                 print(
                     f"[{done}/{total_queries}] spark {query_name} {run_label} "
-                    f"→ {status}  wall={wall:.2f}s  "
+                    f"-> {status}  wall={wall:.2f}s  "
                     f"mem={record['peak_memory_bytes'] // 1024 // 1024}MB  "
                     f"spill={m['spill_bytes'] // 1024}KB"
                 )
 
     except KeyboardInterrupt:
-        print("\nInterrupted — partial results saved.")
+        print("\nInterrupted - partial results saved.")
     finally:
         spark.stop()
 
