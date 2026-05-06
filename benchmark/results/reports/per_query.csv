@@ -1,0 +1,6 @@
+query_name,trino_avg_wall_s,spark_avg_wall_s,spark_trino_ratio,faster_engine
+query1,2.643,2.944,1.11,trino
+query2,1.581,2.362,1.49,trino
+query3,2.701,2.181,0.81,spark
+query4,18.531,40.541,2.19,trino
+query5,2.228,4.013,1.8,trino

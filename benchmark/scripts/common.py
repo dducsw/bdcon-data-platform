@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Iterable, List
@@ -76,6 +77,17 @@ def normalize_value(val: object) -> str:
     """
     if val is None:
         return "NULL"
+    
+    # Handle NaN / Infinity
+    try:
+        f_val = float(val)
+        if math.isnan(f_val):
+            return "NULL"
+        if math.isinf(f_val):
+            return "INF" if f_val > 0 else "-INF"
+    except (ValueError, TypeError):
+        pass
+
     s = str(val).strip()
     if s.upper() in ("NULL", "NONE", ""):
         return "NULL"
@@ -116,6 +128,7 @@ RESULT_FIELDS = [
     "query_id",
     "status",          # "success" | "failed"
     "wall_time_seconds",
+    "engine_internal_time",
     "throughput_qps",
     "peak_memory_bytes",
     "spill_bytes",
@@ -135,6 +148,7 @@ def make_record(
     query_id: str,
     status: str,
     wall_time_seconds: float,
+    engine_internal_time: float = 0.0,
     peak_memory_bytes: int = 0,
     spill_bytes: int = 0,
     cpu_time_millis: int = 0,
@@ -155,6 +169,7 @@ def make_record(
         "query_id": query_id,
         "status": status,
         "wall_time_seconds": round(wall_time_seconds, 3),
+        "engine_internal_time": round(engine_internal_time, 3),
         "throughput_qps": round(1.0 / safe_wall, 6) if status == "success" else 0.0,
         "peak_memory_bytes": int(peak_memory_bytes),
         "spill_bytes": int(spill_bytes),

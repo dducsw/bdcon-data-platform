@@ -50,7 +50,7 @@ spec:
       volumes:
         - name: results
           persistentVolumeClaim:
-            claimName: spark-results-pvc
+            claimName: benchmark-results-pvc
         - name: queries
           configMap:
             name: tpcds-queries
@@ -132,11 +132,11 @@ spec:
             - name: SPARK_EXECUTOR_INSTANCES
               value: "2"
             - name: SPARK_EXECUTOR_CORES
-              value: "4"
+              value: "2"
             - name: SPARK_EXECUTOR_MEMORY
               value: "9g"
             - name: SPARK_DRIVER_CORES
-              value: "4"
+              value: "2"
             - name: SPARK_DRIVER_MEMORY
               value: "7g"
             # Path tới executor pod template bên trong container
@@ -183,3 +183,9 @@ spec:
               echo "=== Starting Spark benchmark (Spark-on-K8s, ${SPARK_EXECUTOR_INSTANCES} executors) ==="
               cd /tmp/app
               python3 -u benchmark/scripts/run_spark_benchmark.py
+
+              echo "=== BENCHMARK FINISHED ==="
+              echo "Pod is kept alive for 30 minutes for data retrieval."
+              echo "Run this command to sync results to your local machine:"
+              echo "  kubectl cp data-platform/$(hostname):/benchmark/results/raw/spark_results.jsonl benchmark/results/raw/spark_results.jsonl"
+              sleep 1800

@@ -41,7 +41,7 @@ spec:
       # Trino workers (which sit on query-pool). This isolates the client
       # overhead from the engine under test.
       nodeSelector:
-        role: compute
+        role: infra
 
       volumes:
         - name: results

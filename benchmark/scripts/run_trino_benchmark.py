@@ -34,6 +34,7 @@ from common import (
     append_jsonl,
     ensure_dir,
     load_env,
+    load_jsonl,
     make_record,
     read_query_list,
     stable_hash,
@@ -157,7 +158,16 @@ def main() -> None:
     raw_dir = results_root / "raw"
     ensure_dir(raw_dir)
     output_file = raw_dir / "trino_results.jsonl"
-    output_file.write_text("", encoding="utf-8")
+    
+    # Crash-resume: Load existing results to skip completed queries
+    existing_results = load_jsonl(output_file)
+    completed_queries = {r["query_name"] for r in existing_results if r["run_type"] == "measured"}
+    if completed_queries:
+        print(f"Found {len(completed_queries)} queries already completed in {output_file.name}. Resuming...")
+    else:
+        # Only truncate if we are starting fresh (optional, but safer to append by default)
+        if not output_file.exists():
+            output_file.write_text("", encoding="utf-8")
 
     # Verify worker count
     try:
@@ -179,10 +189,43 @@ def main() -> None:
     try:
         for query_file in query_files:
             query_name = query_file.stem
-            sql = query_file.read_text(encoding="utf-8").strip().rstrip(";")
+            
+            if query_name in completed_queries:
+                print(f"Skipping {query_name} (already completed)")
+                done += (warmups + runs)
+                continue
 
+            sql_full = query_file.read_text(encoding="utf-8").strip().rstrip(";")
+            
+            # Phase 1: Validation Run (Single run, no WRAP_COUNT, to get result hash)
+            if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
+                print(f"  [Phase 1] Validating {query_name} (full query)...")
+                v_start = time.perf_counter()
+                v_query_resp = submit_query(sql_full, env, f"val-{query_name}")
+                v_rows, v_stats, v_qid = poll_until_done(v_query_resp, timeout_s)
+                v_wall = time.perf_counter() - v_start
+                v_hash = stable_hash(v_rows) if v_rows else ""
+                
+                v_record = make_record(
+                    engine="trino",
+                    query_name=query_name,
+                    run_type="validation",
+                    run_number=1,
+                    query_id=v_qid,
+                    status="success" if v_rows else "failed",
+                    wall_time_seconds=v_wall,
+                    engine_internal_time=(v_stats.get("elapsedTimeMillis", 0) / 1000.0),
+                    peak_memory_bytes=_safe_int(v_stats, "peakTotalMemoryBytes"),
+                    result_hash=v_hash,
+                    row_count=len(v_rows),
+                )
+                append_jsonl(output_file, v_record)
+                print(f"    Validation: hash={v_hash[:8]}, rows={len(v_rows)}")
+
+            # Phase 2: Measured Runs
+            sql_perf = sql_full
             if env.get("WRAP_COUNT", "false").lower() == "true":
-                sql = f"SELECT COUNT(*) FROM (\n{sql}\n)"
+                sql_perf = f"SELECT COUNT(*) FROM (\n{sql_full}\n)"
 
             for run_index in range(1, warmups + runs + 1):
                 is_warmup = run_index <= warmups
@@ -198,19 +241,18 @@ def main() -> None:
                 query_id = "N/A"
 
                 try:
-                    initial = submit_query(sql, env, source)
-                    query_id = initial.get("id", "N/A")
-                    rows, stats, query_id = poll_until_done(initial, timeout_s)
+                    query_resp = submit_query(sql_perf, env, source)
+                    rows, stats, query_id = poll_until_done(query_resp, timeout_s)
                 except Exception as exc:
                     status = "failed"
                     error_message = str(exc)[:2000]
 
                 client_wall = time.perf_counter() - client_start
 
-                # Prefer server-reported elapsed time (excludes client HTTP
-                # overhead on the first round-trip); fall back to client wall.
+                # Canonical wall_time is client-side perf_counter (E2E).
+                # Store server-side reported time in engine_internal_time for debugging.
                 server_ms = stats.get("elapsedTimeMillis")
-                wall = (server_ms / 1000.0) if server_ms is not None else client_wall
+                server_wall = (server_ms / 1000.0) if server_ms is not None else 0.0
 
                 record = make_record(
                     engine="trino",
@@ -219,8 +261,9 @@ def main() -> None:
                     run_number=run_number,
                     query_id=query_id,
                     status=status,
-                    wall_time_seconds=wall,
-                    peak_memory_bytes=_safe_int(stats, "peakUserMemoryBytes", "peakMemoryBytes"),
+                    wall_time_seconds=client_wall,
+                    engine_internal_time=server_wall,
+                    peak_memory_bytes=_safe_int(stats, "peakTotalMemoryBytes", "peakMemoryBytes"),
                     spill_bytes=_safe_int(stats, "spilledBytes"),
                     cpu_time_millis=_safe_int(stats, "cpuTimeMillis"),
                     result_hash=stable_hash(rows) if rows else "",
@@ -233,7 +276,7 @@ def main() -> None:
                 mem_mb = record["peak_memory_bytes"] // 1024 // 1024
                 print(
                     f"[{done}/{total_queries}] trino {query_name} {run_label} "
-                    f"→ {status}  wall={wall:.2f}s  "
+                    f"→ {status}  wall={client_wall:.2f}s  "
                     f"mem={mem_mb}MB  "
                     f"spill={record['spill_bytes']//1024}KB"
                     + (f"\n  ERROR: {record['error_message']}" if status != "success" else "")

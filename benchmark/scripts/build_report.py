@@ -33,6 +33,11 @@ def build_summary(records: list[dict]) -> list[dict]:
         times = [r["wall_time_seconds"] for r in successes]
         total_time = sum(r["wall_time_seconds"] for r in rows)
         success_time = sum(r["wall_time_seconds"] for r in successes)
+        
+        # Calculate statistics
+        avg_time = statistics.mean(times) if times else 0
+        stdev = statistics.stdev(times) if len(times) > 1 else 0
+        geomean = statistics.geometric_mean(times) if times and all(t > 0 for t in times) else 0
 
         summary.append({
             "engine":                     engine,
@@ -43,6 +48,11 @@ def build_summary(records: list[dict]) -> list[dict]:
             "total_wall_time_seconds":    round(total_time, 3),
             "median_wall_time_seconds":   round(statistics.median(times), 3) if times else 0,
             "p90_wall_time_seconds":      round(sorted(times)[int(len(times) * 0.9)], 3) if times else 0,
+            "geometric_mean_seconds":     round(geomean, 3),
+            "std_dev_seconds":            round(stdev, 3),
+            "cv_percent":                 round((stdev / avg_time * 100), 2) if avg_time > 0 else 0,
+            "min_wall_time_seconds":      min(times) if times else 0,
+            "max_wall_time_seconds":      max(times) if times else 0,
             "avg_throughput_qps":         round(len(successes) / success_time, 6) if success_time > 0 else 0,
             "max_peak_memory_bytes":      max((r["peak_memory_bytes"] for r in successes), default=0),
             "total_spill_bytes":          sum(r["spill_bytes"] for r in successes),
@@ -90,12 +100,20 @@ def build_per_query(records: list[dict]) -> list[dict]:
     query_names = sorted({k[0] for k in buckets})
     rows = []
     for q in query_names:
-        t_times = buckets.get((q, "trino"), [])
-        s_times = buckets.get((q, "spark"), [])
+        t_times = sorted(buckets.get((q, "trino"), []))
+        s_times = sorted(buckets.get((q, "spark"), []))
         if not t_times and not s_times:
             continue
-        t_avg = statistics.mean(t_times) if t_times else None
-        s_avg = statistics.mean(s_times) if s_times else None
+        
+        # Trim outliers (min and max) if we have enough runs
+        def get_trimmed_mean(times):
+            if len(times) > 2:
+                return statistics.mean(times[1:-1])
+            return statistics.mean(times) if times else None
+
+        t_avg = get_trimmed_mean(t_times)
+        s_avg = get_trimmed_mean(s_times)
+        
         ratio = (s_avg / t_avg) if (t_avg and s_avg) else None
         rows.append({
             "query_name":         q,
@@ -197,6 +215,24 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
                 f"| {r['spark_trino_ratio'] or '—'} "
                 f"| {r['faster_engine'] or '—'} |"
             )
+
+    # Methodology & Limitations
+    wrap_status = env.get("WRAP_COUNT", "false").lower()
+    lines += [
+        "",
+        "## Methodology & Limitations",
+        "",
+        f"- **Compute vs E2E**: Benchmark was run with `WRAP_COUNT={wrap_status}`. ",
+        "  - If `true`, metrics focus on core engine compute/shuffle (standard for comparison).",
+        "  - If `false`, metrics include significant Python/REST serialization overhead.",
+        "- **Memory Measurement**: Metrics represent **Total JVM/System Peak Memory** across the cluster. ",
+        "  - Trino: `peakTotalMemoryBytes` (Cluster-wide).",
+        "  - Spark: Sum of `JVMHeapMemory` peak across all executors + Driver RSS.",
+        "> ⚠️ **Note**: Memory metrics are NOT directly comparable between engines due to different accounting layers. Spark metrics focus on JVM Heap, while Trino includes more system-level buffers.",
+        "- **Caching**: `spark.catalog.clearCache()` was used between queries. ",
+        "  - Note: This does NOT clear JVM JIT compilation, filesystem metadata caches, or S3A connection pools. Subsequent queries may still benefit from lower-level warming.",
+        "- **Isolation**: Engines were run sequentially with `requests=limits` (Guaranteed QoS) to ensure no resource contention.",
+    ]
 
     return "\n".join(lines) + "\n"
 

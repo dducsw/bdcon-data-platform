@@ -45,6 +45,7 @@ from common import (
     append_jsonl,
     ensure_dir,
     load_env,
+    load_jsonl,
     make_record,
     read_query_list,
     stable_hash,
@@ -100,8 +101,43 @@ class _QueryMetrics:
             }
 
 
+import urllib.request
+import json
+
+def get_executor_memory(app_id: str, spark_ui_url: str = None) -> int:
+    """
+    Retrieves the sum of peak JVM Heap + Off-Heap Memory across all executors via Spark REST API.
+    """
+    if spark_ui_url is None:
+        ip = os.environ.get("MY_POD_IP", "127.0.0.1")
+        spark_ui_url = f"http://{ip}:4040"
+
+    try:
+        url = f"{spark_ui_url}/api/v1/applications/{app_id}/executors"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            executors = json.loads(resp.read().decode("utf-8"))
+        
+        # We sum JVMHeapMemory + JVMOffHeapMemory from peakMemoryMetrics for all non-driver executors.
+        total_peak_bytes = 0
+        for e in executors:
+            if e.get("id") == "driver":
+                continue
+            
+            # peakMemoryMetrics is the most reliable source for peak usage in Spark 3.x
+            pmm = e.get("peakMemoryMetrics", {})
+            total_peak_bytes += pmm.get("JVMHeapMemory", 0)
+            total_peak_bytes += pmm.get("JVMOffHeapMemory", 0)
+            
+        return int(total_peak_bytes)
+    except Exception as e:
+        # Don't print if it's just a 404/connection error after app stop
+        if "404" not in str(e):
+            print(f"  Warning: Could not fetch executor memory via REST API: {e}")
+        return 0
+
+
 def _get_rss_mb() -> float:
-    """Retrieves actual RAM usage of the ENTIRE Container (Python + JVM)."""
+    """Retrieves actual RAM usage of the Driver Container (Python + JVM)."""
     # 1. Cgroup v2
     try:
         with open('/sys/fs/cgroup/memory.current', 'r') as f:
@@ -125,8 +161,8 @@ def _get_rss_mb() -> float:
     return 0.0
 
 
-class MemoryMonitor:
-    """Background thread to capture Peak RSS during query execution."""
+class DriverMemoryMonitor:
+    """Background thread to capture Peak RSS of the Driver during query execution."""
 
     def __init__(self, interval: float = 0.1):
         self.interval = interval
@@ -202,6 +238,10 @@ def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
             def onExecutorMetricsUpdate(self, event): pass
             def onEnvironmentUpdate(self, event): pass
             
+            # Catch-all for any other SparkListener methods to avoid AttributeError
+            def __getattr__(self, name):
+                return lambda *args, **kwargs: None
+
             class Java:
                 implements = ["org.apache.spark.scheduler.SparkListenerInterface"]
 
@@ -310,7 +350,7 @@ def _build_spark(env: dict):
             .config("spark.executor.cores", executor_cores)
             .config("spark.executor.memory", executor_memory)
             # --- Resources Limits/Requests (Matching Trino) ------------------
-            .config("spark.kubernetes.executor.request.cores", "1")
+            .config("spark.kubernetes.executor.request.cores", executor_cores)
             .config("spark.kubernetes.executor.limit.cores", executor_cores)
             .config("spark.kubernetes.executor.limit.memory", executor_memory)
         )
@@ -357,7 +397,7 @@ def _build_spark(env: dict):
 # --- Query execution ---------------------------------------------------------
 
 def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
-    monitor = MemoryMonitor()
+    monitor = DriverMemoryMonitor()
     monitor.start()
 
     started = time.perf_counter()
@@ -366,6 +406,9 @@ def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
     rows: list = []
 
     try:
+        # Clear cache to mitigate JVM/Metadata cache bias between queries
+        spark.catalog.clearCache()
+        
         df = spark.sql(sql)
         rows = df.collect()
     except Exception as exc:
@@ -390,7 +433,16 @@ def main() -> None:
     raw_dir = results_root / "raw"
     ensure_dir(raw_dir)
     output_file = raw_dir / "spark_results.jsonl"
-    output_file.write_text("", encoding="utf-8")
+    
+    # Crash-resume: Load existing results to skip completed queries
+    existing_results = load_jsonl(output_file)
+    completed_queries = {r["query_name"] for r in existing_results if r["run_type"] == "measured"}
+    if completed_queries:
+        print(f"Found {len(completed_queries)} queries already completed in {output_file.name}. Resuming...")
+    else:
+        # Only truncate if we are starting fresh
+        if not output_file.exists():
+            output_file.write_text("", encoding="utf-8")
 
     master = env.get("SPARK_MASTER", "local[4]")
     print(
@@ -402,6 +454,12 @@ def main() -> None:
 
     app_id = spark.sparkContext.applicationId
     print(f"  Application ID: {app_id}")
+
+    # Check off-heap memory config (as requested for methodology verification)
+    offheap_enabled = spark.conf.get("spark.memory.offHeap.enabled", "false")
+    print(f"  Spark off-heap memory: {offheap_enabled}")
+    if offheap_enabled.lower() == "true":
+        print("  Warning: Off-heap memory is enabled but not currently summed in peak_memory_bytes.")
 
     metrics = _QueryMetrics()
     try:
@@ -417,10 +475,41 @@ def main() -> None:
     try:
         for query_file in query_files:
             query_name = query_file.stem
-            sql = query_file.read_text(encoding="utf-8").strip().rstrip(";")
+            
+            if query_name in completed_queries:
+                print(f"Skipping {query_name} (already completed)")
+                done += (warmups + runs)
+                continue
 
+            sql_full = query_file.read_text(encoding="utf-8").strip().rstrip(";")
+            
+            # Phase 1: Validation Run (Single run, no WRAP_COUNT, to get result hash)
+            if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
+                print(f"  [Phase 1] Validating {query_name} (full query)...")
+                v_rows, v_wall, v_status, v_err, v_driver_mb = run_query(spark, sql_full)
+                v_exec_bytes = get_executor_memory(app_id)
+                v_hash = stable_hash(v_rows) if v_rows else ""
+                
+                v_record = make_record(
+                    engine="spark",
+                    query_name=query_name,
+                    run_type="validation",
+                    run_number=1,
+                    query_id=f"{app_id}-{query_name}-val",
+                    status=v_status,
+                    wall_time_seconds=v_wall,
+                    peak_memory_bytes=max(int(v_driver_mb * 1024 * 1024), v_exec_bytes),
+                    result_hash=v_hash,
+                    row_count=len(v_rows),
+                    error_message=v_err,
+                )
+                append_jsonl(output_file, v_record)
+                print(f"    Validation: status={v_status}, hash={v_hash[:8]}, rows={len(v_rows)}")
+
+            # Phase 2: Measured Runs
+            sql_perf = sql_full
             if env.get("WRAP_COUNT", "false").lower() == "true":
-                sql = f"SELECT COUNT(*) FROM (\n{sql}\n)"
+                sql_perf = f"SELECT COUNT(*) FROM (\n{sql_full}\n)"
 
             for run_index in range(1, warmups + runs + 1):
                 is_warmup = run_index <= warmups
@@ -430,7 +519,8 @@ def main() -> None:
                 if listener_ok:
                     metrics.reset()
 
-                rows, wall, status, err, peak_mem_mb = run_query(spark, sql)
+                rows, wall, status, err, driver_peak_mb = run_query(spark, sql_perf)
+                executor_peak_bytes = get_executor_memory(app_id)
 
                 m = metrics.snapshot() if listener_ok else {
                     "peak_memory_bytes": 0,
@@ -439,12 +529,11 @@ def main() -> None:
                     "server_side_duration_ms": 0,
                 }
 
-                # Use server-side duration (from listener) as canonical wall_time
-                # to exclude startup overhead, matching Trino's measurement.
-                # Fall back to client-side wall if listener failed.
-                wall_seconds = wall
+                # Canonical wall_time is client-side perf_counter (E2E).
+                # Store server-side reported time (from listener) in engine_internal_time.
+                server_wall = 0.0
                 if m["server_side_duration_ms"] > 0:
-                    wall_seconds = m["server_side_duration_ms"] / 1000.0
+                    server_wall = m["server_side_duration_ms"] / 1000.0
 
                 record = make_record(
                     engine="spark",
@@ -453,9 +542,11 @@ def main() -> None:
                     run_number=run_number,
                     query_id=f"{app_id}-{query_name}-{run_label}",
                     status=status,
-                    wall_time_seconds=wall_seconds,
+                    wall_time_seconds=wall,
+                    engine_internal_time=server_wall,
                     peak_memory_bytes=max(
-                        int(peak_mem_mb * 1024 * 1024),
+                        int(driver_peak_mb * 1024 * 1024),
+                        executor_peak_bytes,
                         m["peak_memory_bytes"],
                     ),
                     spill_bytes=m["spill_bytes"],
@@ -468,7 +559,7 @@ def main() -> None:
                 done += 1
                 print(
                     f"[{done}/{total_queries}] spark {query_name} {run_label} "
-                    f"-> {status}  wall={wall_seconds:.2f}s (client={wall:.2f}s) "
+                    f"-> {status}  wall={server_wall:.2f}s (client={wall:.2f}s) "
                     f"mem={record['peak_memory_bytes'] // 1024 // 1024}MB  "
                     f"spill={m['spill_bytes'] // 1024}KB"
                 )
