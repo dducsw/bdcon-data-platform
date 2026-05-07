@@ -37,9 +37,11 @@ import os
 import time
 import threading
 import uuid
+import subprocess
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from kubernetes import client, config
 
 from common import (
     ROOT,
@@ -105,36 +107,70 @@ class _QueryMetrics:
 import urllib.request
 import json
 
-def get_executor_memory(app_id: str, spark_ui_url: str = None) -> int:
-    """
-    Retrieves the sum of peak JVM Heap + Off-Heap Memory across all executors via Spark REST API.
-    """
-    if spark_ui_url is None:
-        ip = os.environ.get("MY_POD_IP", "127.0.0.1")
-        spark_ui_url = f"http://{ip}:4040"
+# --- K8s Cluster-wide Memory Sampler ------------------------------------------
 
-    try:
-        url = f"{spark_ui_url}/api/v1/applications/{app_id}/executors"
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            executors = json.loads(resp.read().decode("utf-8"))
+class K8sClusterMemorySampler(threading.Thread):
+    """
+    Polls Kubernetes Metrics API to get the instantaneous sum of memory 
+    usage across all executor pods for a specific Spark Application.
+    This provides an equivalent metric to Trino's peakUserMemory.
+    """
+    def __init__(self, namespace: str, app_id: str, interval: float = 1.0):
+        super().__init__()
+        self.namespace = namespace
+        self.app_id = app_id
+        self.interval = interval
+        self.stop_event = threading.Event()
+        self.peak_memory_bytes = 0
         
-        # We sum JVMHeapMemory + JVMOffHeapMemory from peakMemoryMetrics for all non-driver executors.
-        total_peak_bytes = 0
-        for e in executors:
-            if e.get("id") == "driver":
-                continue
-            
-            # peakMemoryMetrics is the most reliable source for peak usage in Spark 3.x
-            pmm = e.get("peakMemoryMetrics", {})
-            total_peak_bytes += pmm.get("JVMHeapMemory", 0)
-            total_peak_bytes += pmm.get("JVMOffHeapMemory", 0)
-            
-        return int(total_peak_bytes)
-    except Exception as e:
-        # Don't print if it's just a 404/connection error after app stop
-        if "404" not in str(e):
-            print(f"  Warning: Could not fetch executor memory via REST API: {e}")
-        return 0
+        try:
+            config.load_incluster_config()
+        except:
+            config.load_kube_config()
+        self.api = client.CustomObjectsApi()
+
+    def _parse_mem(self, mem_str: str) -> int:
+        if not mem_str: return 0
+        if mem_str.endswith("Ki"): return int(mem_str[:-2]) * 1024
+        if mem_str.endswith("Mi"): return int(mem_str[:-2]) * 1024 * 1024
+        if mem_str.endswith("Gi"): return int(mem_str[:-2]) * 1024 * 1024 * 1024
+        try:
+            return int(mem_str.rstrip("nukmGTP")) 
+        except:
+            return 0
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                # Query Metrics API for pods with matching spark-app-selector
+                res = self.api.list_namespaced_custom_object(
+                    group="metrics.k8s.io",
+                    version="v1beta1",
+                    namespace=self.namespace,
+                    plural="pods",
+                    label_selector=f"spark-app-selector=spark-{self.app_id}"
+                )
+                
+                current_total = 0
+                for item in res.get("items", []):
+                    for container in item.get("containers", []):
+                        usage = container.get("usage", {}).get("memory", "0")
+                        current_total += self._parse_mem(usage)
+                
+                if current_total > self.peak_memory_bytes:
+                    self.peak_memory_bytes = current_total
+            except:
+                pass
+            time.sleep(self.interval)
+
+    def stop(self) -> int:
+        self.stop_event.set()
+        if self.is_alive():
+            self.join(timeout=2.0)
+        return self.peak_memory_bytes
+
+def get_executor_memory_legacy(app_id: str, spark_ui_url: str = None) -> int:
+    return 0
 
 
 def _get_rss_mb() -> float:
@@ -401,7 +437,7 @@ def _build_spark(env: dict, query_name: str):
 
 # --- Query execution ---------------------------------------------------------
 
-def run_query(spark, sql: str) -> tuple[list, float, str, str, float]:
+def run_query(spark, sql: str, sampler: K8sClusterMemorySampler = None) -> tuple[list, float, str, str, float]:
     monitor = DriverMemoryMonitor()
     monitor.start()
 
@@ -477,9 +513,12 @@ def main() -> None:
                 
                 # Phase 1: Validation Run
                 if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
-                    print(f"    [Phase 1] Validating {query_name} (full query)...")
-                    v_rows, v_wall, v_status, v_err, v_driver_mb = run_query(spark, sql_full)
-                    v_exec_bytes = get_executor_memory(app_id)
+                    sampler = K8sClusterMemorySampler(env.get("K8S_NAMESPACE", "data-platform"), app_id)
+                    sampler.start()
+                    
+                    v_rows, v_wall, v_status, v_err, v_driver_mb = run_query(spark, sql_full, sampler)
+                    
+                    v_exec_bytes = sampler.stop()
                     v_hash = stable_hash(v_rows) if v_rows else ""
                     
                     v_m = metrics.snapshot() if listener_ok else {
@@ -525,8 +564,11 @@ def main() -> None:
                     if listener_ok:
                         metrics.reset()
 
-                    rows, wall, status, err, driver_peak_mb = run_query(spark, sql_perf)
-                    executor_peak_bytes = get_executor_memory(app_id)
+                    sampler = K8sClusterMemorySampler(env.get("K8S_NAMESPACE", "data-platform"), app_id)
+                    sampler.start()
+
+                    rows, wall, status, err, driver_peak_mb = run_query(spark, sql_perf, sampler)
+                    executor_peak_bytes = sampler.stop()
 
                     m = metrics.snapshot() if listener_ok else {
                         "peak_memory_bytes": 0,
