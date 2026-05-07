@@ -40,8 +40,8 @@ spec:
       # Pin the runner pod to infra-pool so it does NOT share a node with
       # Trino workers (which sit on query-pool). This isolates the client
       # overhead from the engine under test.
-      nodeSelector:
-        role: infra
+      # nodeSelector:
+      #   role: infra
 
       volumes:
         - name: results
@@ -111,6 +111,7 @@ spec:
               pip install --quiet requests
 
               echo "=== Loading config ==="
+              sed -i 's/\r$//' /tmp/app/benchmark/config/benchmark.env
               set -a
               source /tmp/app/benchmark/config/benchmark.env
               set +a
