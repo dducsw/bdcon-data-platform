@@ -170,14 +170,12 @@ service:
   port: 8080
 
 additionalConfigProperties:
-  - "query.max-memory-per-node=5.5GB"
-  - "query.max-total-memory-per-node=7GB"
+  - "query.max-memory-per-node=4GB"
+  - "query.max-memory=12GB"
   - "memory.heap-headroom-per-node=1GB"
   - "query.max-history=100"
   - "spill-enabled=true"
   - "spiller-spill-path=/data/trino/spill"
-  - "max-spill-per-node=20GB"
-  - "query.max-spill-per-node=10GB"
   - "join-distribution-type=AUTOMATIC"
   - "optimizer.join-reordering-strategy=AUTOMATIC"
 
