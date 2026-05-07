@@ -36,6 +36,7 @@ from __future__ import annotations
 import os
 import time
 import threading
+import uuid
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -252,7 +253,7 @@ def _attach_listener(sc: Any, metrics: _QueryMetrics) -> None:
 
 # --- SparkSession factory ----------------------------------------------------
 
-def _build_spark(env: dict):
+def _build_spark(env: dict, query_name: str):
     """
     Build SparkSession.
     Execution mode is controlled by env['SPARK_MASTER'].
@@ -272,9 +273,10 @@ def _build_spark(env: dict):
     is_k8s = master.startswith("k8s://")
     print(f"  Spark master: {master}")
 
+    random_suffix = uuid.uuid4().hex[:6]
     builder = (
         SparkSession.builder
-        .appName(f"tpcds-benchmark-{schema}")
+        .appName(f"benchmark-spark-{query_name}-{random_suffix}")
         .master(master)
         # --- Driver resources ------------------------------------------------
         .config("spark.driver.memory", driver_memory)
@@ -311,6 +313,8 @@ def _build_spark(env: dict):
         # --- Serialisation ---------------------------------------------------
         .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
         .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
+        # --- GC Management (to prevent monotonic RSS increase) ---------------
+        .config("spark.cleaner.periodicGC.interval", "1min")
     )
 
     # --- Spark-on-Kubernetes Specific Config ---------------------------------
@@ -350,9 +354,10 @@ def _build_spark(env: dict):
             .config("spark.executor.cores", executor_cores)
             .config("spark.executor.memory", executor_memory)
             # --- Resources Limits/Requests (Matching Trino) ------------------
-            .config("spark.kubernetes.executor.request.cores", executor_cores)
-            .config("spark.kubernetes.executor.limit.cores", executor_cores)
-            .config("spark.kubernetes.executor.limit.memory", executor_memory)
+            .config("spark.kubernetes.executor.request.cores", "2")
+            .config("spark.kubernetes.executor.limit.cores", "2")
+            .config("spark.kubernetes.executor.limit.memory", "10Gi") # Match Pod memory
+            .config("spark.executor.memoryOverhead", "1g")
         )
 
         if executor_template:
@@ -434,40 +439,10 @@ def main() -> None:
     ensure_dir(raw_dir)
     output_file = raw_dir / "spark_results.jsonl"
     
-    # Crash-resume: Load existing results to skip completed queries
-    existing_results = load_jsonl(output_file)
-    completed_queries = {r["query_name"] for r in existing_results if r["run_type"] == "measured"}
-    if completed_queries:
-        print(f"Found {len(completed_queries)} queries already completed in {output_file.name}. Resuming...")
-    else:
-        # Only truncate if we are starting fresh
-        if not output_file.exists():
-            output_file.write_text("", encoding="utf-8")
-
-    master = env.get("SPARK_MASTER", "local[4]")
-    print(
-        f"Building SparkSession ...\n"
-        f"  master={master}\n"
-        f"  driver={env.get('SPARK_DRIVER_CORES', 4)} cores / {env.get('SPARK_DRIVER_MEMORY', '7g')}"
-    )
-    spark = _build_spark(env)
-
-    app_id = spark.sparkContext.applicationId
-    print(f"  Application ID: {app_id}")
-
-    # Check off-heap memory config (as requested for methodology verification)
-    offheap_enabled = spark.conf.get("spark.memory.offHeap.enabled", "false")
-    print(f"  Spark off-heap memory: {offheap_enabled}")
-    if offheap_enabled.lower() == "true":
-        print("  Warning: Off-heap memory is enabled but not currently summed in peak_memory_bytes.")
-
-    metrics = _QueryMetrics()
-    try:
-        _attach_listener(spark.sparkContext, metrics)
-        listener_ok = True
-    except Exception as exc:
-        print(f"  Warning: SparkListener unavailable, metrics will be 0 ({exc})")
-        listener_ok = False
+    # Force fresh start: Always truncate for this run
+    print(f"Force Fresh: Truncating {output_file.name} to start a clean benchmark.")
+    output_file.write_text("", encoding="utf-8")
+    completed_queries = set()
 
     total_queries = len(query_files) * (warmups + runs)
     done = 0
@@ -481,93 +456,129 @@ def main() -> None:
                 done += (warmups + runs)
                 continue
 
-            sql_full = query_file.read_text(encoding="utf-8").strip().rstrip(";")
-            
-            # Phase 1: Validation Run (Single run, no WRAP_COUNT, to get result hash)
-            if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
-                print(f"  [Phase 1] Validating {query_name} (full query)...")
-                v_rows, v_wall, v_status, v_err, v_driver_mb = run_query(spark, sql_full)
-                v_exec_bytes = get_executor_memory(app_id)
-                v_hash = stable_hash(v_rows) if v_rows else ""
+            # Restart SparkSession for every query to get clean metrics
+            print(f"\n>>> Starting SparkSession for {query_name} ...")
+            start_init = time.perf_counter()
+            spark = _build_spark(env, query_name)
+            app_id = spark.sparkContext.applicationId
+            init_duration = time.perf_counter() - start_init
+            print(f"    SparkSession ready (init took {init_duration:.1f}s), App ID: {app_id}")
+
+            metrics = _QueryMetrics()
+            try:
+                _attach_listener(spark.sparkContext, metrics)
+                listener_ok = True
+            except Exception as exc:
+                print(f"    Warning: SparkListener unavailable, metrics will be limited ({exc})")
+                listener_ok = False
+
+            try:
+                sql_full = query_file.read_text(encoding="utf-8").strip().rstrip(";")
                 
-                v_record = make_record(
-                    engine="spark",
-                    query_name=query_name,
-                    run_type="validation",
-                    run_number=1,
-                    query_id=f"{app_id}-{query_name}-val",
-                    status=v_status,
-                    wall_time_seconds=v_wall,
-                    peak_memory_bytes=max(int(v_driver_mb * 1024 * 1024), v_exec_bytes),
-                    result_hash=v_hash,
-                    row_count=len(v_rows),
-                    error_message=v_err,
-                )
-                append_jsonl(output_file, v_record)
-                print(f"    Validation: status={v_status}, hash={v_hash[:8]}, rows={len(v_rows)}")
+                # Phase 1: Validation Run
+                if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
+                    print(f"    [Phase 1] Validating {query_name} (full query)...")
+                    v_rows, v_wall, v_status, v_err, v_driver_mb = run_query(spark, sql_full)
+                    v_exec_bytes = get_executor_memory(app_id)
+                    v_hash = stable_hash(v_rows) if v_rows else ""
+                    
+                    v_m = metrics.snapshot() if listener_ok else {
+                        "peak_memory_bytes": 0,
+                        "spill_bytes": 0,
+                        "cpu_time_millis": 0,
+                        "server_side_duration_ms": 0,
+                    }
 
-            # Phase 2: Measured Runs
-            sql_perf = sql_full
-            if env.get("WRAP_COUNT", "false").lower() == "true":
-                sql_perf = f"SELECT COUNT(*) FROM (\n{sql_full}\n)"
+                    v_record = make_record(
+                        engine="spark",
+                        query_name=query_name,
+                        run_type="validation",
+                        run_number=1,
+                        query_id=f"{app_id}-{query_name}-val",
+                        status=v_status,
+                        wall_time_seconds=v_wall,
+                        engine_internal_time=(v_m["server_side_duration_ms"] / 1000.0) if v_m["server_side_duration_ms"] > 0 else 0.0,
+                        peak_memory_bytes=max(
+                            int(v_driver_mb * 1024 * 1024),
+                            v_exec_bytes,
+                            v_m["peak_memory_bytes"]
+                        ),
+                        spill_bytes=v_m["spill_bytes"],
+                        cpu_time_millis=v_m["cpu_time_millis"],
+                        result_hash=v_hash,
+                        row_count=len(v_rows),
+                        error_message=v_err,
+                    )
+                    append_jsonl(output_file, v_record)
+                    print(f"      Validation: status={v_status}, hash={v_hash[:8]}, rows={len(v_rows)}")
 
-            for run_index in range(1, warmups + runs + 1):
-                is_warmup = run_index <= warmups
-                run_number = 0 if is_warmup else run_index - warmups
-                run_label = f"warmup-{run_index}" if is_warmup else f"run-{run_number}"
+                # Phase 2: Measured Runs
+                sql_perf = sql_full
+                if env.get("WRAP_COUNT", "false").lower() == "true":
+                    sql_perf = f"SELECT COUNT(*) FROM (\n{sql_full}\n)"
 
-                if listener_ok:
-                    metrics.reset()
+                for run_index in range(1, warmups + runs + 1):
+                    is_warmup = run_index <= warmups
+                    run_number = 0 if is_warmup else run_index - warmups
+                    run_label = f"warmup-{run_index}" if is_warmup else f"run-{run_number}"
 
-                rows, wall, status, err, driver_peak_mb = run_query(spark, sql_perf)
-                executor_peak_bytes = get_executor_memory(app_id)
+                    if listener_ok:
+                        metrics.reset()
 
-                m = metrics.snapshot() if listener_ok else {
-                    "peak_memory_bytes": 0,
-                    "spill_bytes": 0,
-                    "cpu_time_millis": 0,
-                    "server_side_duration_ms": 0,
-                }
+                    rows, wall, status, err, driver_peak_mb = run_query(spark, sql_perf)
+                    executor_peak_bytes = get_executor_memory(app_id)
 
-                # Canonical wall_time is client-side perf_counter (E2E).
-                # Store server-side reported time (from listener) in engine_internal_time.
-                server_wall = 0.0
-                if m["server_side_duration_ms"] > 0:
-                    server_wall = m["server_side_duration_ms"] / 1000.0
+                    m = metrics.snapshot() if listener_ok else {
+                        "peak_memory_bytes": 0,
+                        "spill_bytes": 0,
+                        "cpu_time_millis": 0,
+                        "server_side_duration_ms": 0,
+                    }
 
-                record = make_record(
-                    engine="spark",
-                    query_name=query_name,
-                    run_type="warmup" if is_warmup else "measured",
-                    run_number=run_number,
-                    query_id=f"{app_id}-{query_name}-{run_label}",
-                    status=status,
-                    wall_time_seconds=wall,
-                    engine_internal_time=server_wall,
-                    peak_memory_bytes=max(
-                        int(driver_peak_mb * 1024 * 1024),
-                        executor_peak_bytes,
-                        m["peak_memory_bytes"],
-                    ),
-                    spill_bytes=m["spill_bytes"],
-                    cpu_time_millis=m["cpu_time_millis"],
-                    result_hash=stable_hash(rows) if rows else "",
-                    row_count=len(rows),
-                    error_message=err,
-                )
-                append_jsonl(output_file, record)
-                done += 1
-                print(
-                    f"[{done}/{total_queries}] spark {query_name} {run_label} "
-                    f"-> {status}  wall={server_wall:.2f}s (client={wall:.2f}s) "
-                    f"mem={record['peak_memory_bytes'] // 1024 // 1024}MB  "
-                    f"spill={m['spill_bytes'] // 1024}KB"
-                )
+                    server_wall = (m["server_side_duration_ms"] / 1000.0) if m["server_side_duration_ms"] > 0 else 0.0
+
+                    record = make_record(
+                        engine="spark",
+                        query_name=query_name,
+                        run_type="warmup" if is_warmup else "measured",
+                        run_number=run_number,
+                        query_id=f"{app_id}-{query_name}-{run_label}",
+                        status=status,
+                        wall_time_seconds=wall,
+                        engine_internal_time=server_wall,
+                        peak_memory_bytes=max(
+                            int(driver_peak_mb * 1024 * 1024),
+                            executor_peak_bytes,
+                            m["peak_memory_bytes"],
+                        ),
+                        spill_bytes=m["spill_bytes"],
+                        cpu_time_millis=m["cpu_time_millis"],
+                        result_hash=stable_hash(rows) if rows else "",
+                        row_count=len(rows),
+                        error_message=err,
+                    )
+                    append_jsonl(output_file, record)
+                    done += 1
+                    print(
+                        f"    [{done}/{total_queries}] {query_name} {run_label} "
+                        f"-> {status}  wall={server_wall:.2f}s (client={wall:.2f}s) "
+                        f"mem={record['peak_memory_bytes'] // 1024 // 1024}MB  "
+                        f"spill={m['spill_bytes'] // 1024}KB"
+                    )
+
+            except Exception as query_exc:
+                print(f"  Error running {query_name}: {query_exc}")
+            finally:
+                print(f"    Stopping SparkSession for {query_name}...")
+                spark.stop()
+                # Wait longer for K8s to cleanup resources (ConfigMaps, Services, Pods)
+                # to avoid "AlreadyExists" errors on the next query.
+                time.sleep(5)
 
     except KeyboardInterrupt:
         print("\nInterrupted - partial results saved.")
-    finally:
-        spark.stop()
+    except Exception as e:
+        print(f"\nFatal error: {e}")
 
     print(f"\nDone. Results: {output_file}")
 

@@ -105,20 +105,28 @@ def build_per_query(records: list[dict]) -> list[dict]:
         if not t_times and not s_times:
             continue
         
-        # Trim outliers (min and max) if we have enough runs
-        def get_trimmed_mean(times):
-            if len(times) > 2:
-                return statistics.mean(times[1:-1])
-            return statistics.mean(times) if times else None
-
-        t_avg = get_trimmed_mean(t_times)
-        s_avg = get_trimmed_mean(s_times)
+        # Use median for per-query stability
+        t_med = statistics.median(t_times) if t_times else None
+        s_med = statistics.median(s_times) if s_times else None
         
-        ratio = (s_avg / t_avg) if (t_avg and s_avg) else None
+        # Calculate CV% if enough runs
+        def get_cv(times):
+            if len(times) > 1:
+                mu = statistics.mean(times)
+                if mu > 0:
+                    return (statistics.stdev(times) / mu) * 100
+            return 0.0
+
+        t_cv = get_cv(t_times)
+        s_cv = get_cv(s_times)
+        
+        ratio = (s_med / t_med) if (t_med and s_med) else None
         rows.append({
             "query_name":         q,
-            "trino_avg_wall_s":   round(t_avg, 3) if t_avg is not None else "",
-            "spark_avg_wall_s":   round(s_avg, 3) if s_avg is not None else "",
+            "trino_med_wall_s":   round(t_med, 3) if t_med is not None else "",
+            "spark_med_wall_s":   round(s_med, 3) if s_med is not None else "",
+            "trino_cv_pct":       round(t_cv, 2),
+            "spark_cv_pct":       round(s_cv, 2),
             "spark_trino_ratio":  round(ratio, 2) if ratio is not None else "",
             "faster_engine":      ("trino" if (ratio or 0) > 1 else "spark") if ratio else "",
         })
@@ -188,30 +196,36 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
         "Remaining mismatches indicate genuine numeric or NULL-handling divergence.",
     ]
     if total_val > matched:
-        lines += ["", "### Mismatched queries (first 10)", "", "| Query | Run | Spark rows | Trino rows | Spark hash | Trino hash |", "|---|---|---|---|---|---|"]
-        for v in [r for r in validation if not r["matches"]][:10]:
+        lines += ["", "### Result Divergence Report", "", "Queries with different results (hash or row count mismatch).", "", "| Query | Run | Spark rows | Trino rows | Match? | Spark hash | Trino hash |", "|---|---|---|---|---|---|---|"]
+        for v in [r for r in validation if not r["matches"]][:20]:
+            match_status = "✅" if v["matches"] else "❌"
+            if v["spark_rows"] != v["trino_rows"]:
+                match_status = "⚠️ **ROW DIFF**"
             lines.append(
                 f"| {v['query_name']} | {v['run_number']} "
                 f"| {v['spark_rows']} | {v['trino_rows']} "
+                f"| {match_status} "
                 f"| `{v['spark_hash'][:8]}` | `{v['trino_hash'][:8]}` |"
             )
 
     # Per-query table (top 30 by Trino time, slowest first)
-    sortable = [r for r in per_query if r["trino_avg_wall_s"] != ""]
-    top = sorted(sortable, key=lambda r: float(r["trino_avg_wall_s"]), reverse=True)[:30]
+    sortable = [r for r in per_query if r["trino_med_wall_s"] != ""]
+    top = sorted(sortable, key=lambda r: float(r["trino_med_wall_s"]), reverse=True)[:30]
     if top:
         lines += [
             "",
-            "## Per-query comparison (avg wall time, slowest Trino queries first)",
+            "## Per-query comparison (median wall time, slowest Trino queries first)",
             "",
-            "| Query | Trino (s) | Spark (s) | Spark/Trino ratio | Faster |",
-            "|---|---|---|---|---|",
+            "| Query | Trino (s) | Trino CV% | Spark (s) | Spark CV% | Spark/Trino ratio | Faster |",
+            "|---|---|---|---|---|---|---|",
         ]
         for r in top:
             lines.append(
                 f"| {r['query_name']} "
-                f"| {r['trino_avg_wall_s']} "
-                f"| {r['spark_avg_wall_s'] or '—'} "
+                f"| {r['trino_med_wall_s']} "
+                f"| {r['trino_cv_pct']}% "
+                f"| {r['spark_med_wall_s'] or '—'} "
+                f"| {r['spark_cv_pct'] or '0'}% "
                 f"| {r['spark_trino_ratio'] or '—'} "
                 f"| {r['faster_engine'] or '—'} |"
             )

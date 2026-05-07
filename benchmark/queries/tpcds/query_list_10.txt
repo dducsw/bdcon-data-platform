@@ -1,5 +1,10 @@
-query1.sql
-query2.sql
-query3.sql
-query4.sql
-query5.sql
+query34.sql
+query31.sql
+query11.sql
+query8.sql
+query17.sql
+query72.sql
+query14.sql
+query47.sql
+query67.sql
+query95.sql

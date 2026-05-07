@@ -84,10 +84,10 @@ spec:
           resources:
             requests:
               cpu: "2000m"
-              memory: "8Gi"
+              memory: "6Gi"
             limits:
-              cpu: "4000m"
-              memory: "10Gi"
+              cpu: "2000m"
+              memory: "6Gi"
 
           # ── Driver phải expose các port này để executor kết nối ngược ──────
           ports:
@@ -134,7 +134,7 @@ spec:
             - name: SPARK_EXECUTOR_CORES
               value: "2"
             - name: SPARK_EXECUTOR_MEMORY
-              value: "4g"
+              value: "9g"
             - name: SPARK_DRIVER_CORES
               value: "2"
             - name: SPARK_DRIVER_MEMORY
@@ -179,6 +179,7 @@ spec:
 
               # Env vars được inject bởi K8s sẽ ghi đè giá trị trong file .env
               export RESULTS_DIR=/benchmark/results
+              export PYTHONPATH=$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9.7-src.zip
 
               echo "=== Driver host: ${MY_POD_IP} ==="
               echo "=== Starting Spark benchmark (Spark-on-K8s, ${SPARK_EXECUTOR_INSTANCES} executors) ==="

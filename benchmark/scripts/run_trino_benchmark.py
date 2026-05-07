@@ -46,20 +46,34 @@ from common import (
 _DEFAULT_TIMEOUT_S = 60   # per individual HTTP request (not query timeout)
 
 
-def _post(url: str, body: str, headers: dict) -> dict:
-    req = urllib.request.Request(
-        url=url,
-        data=body.encode("utf-8"),
-        headers={"Content-Type": "text/plain; charset=utf-8", **headers},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=_DEFAULT_TIMEOUT_S) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _post(url: str, body: str, headers: dict, retries: int = 3) -> dict:
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                url=url,
+                data=body.encode("utf-8"),
+                headers={"Content-Type": "text/plain; charset=utf-8", **headers},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=_DEFAULT_TIMEOUT_S) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, ConnectionError) as e:
+            if attempt == retries - 1:
+                raise
+            time.sleep(1.5 ** attempt)
+    return {}
 
 
-def _get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=_DEFAULT_TIMEOUT_S) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _get(url: str, retries: int = 3) -> dict:
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=_DEFAULT_TIMEOUT_S) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, ConnectionError) as e:
+            if attempt == retries - 1:
+                raise
+            time.sleep(1.5 ** attempt)
+    return {}
 
 
 def _delete(url: str) -> None:
@@ -215,7 +229,9 @@ def main() -> None:
                     status="success" if v_rows else "failed",
                     wall_time_seconds=v_wall,
                     engine_internal_time=(v_stats.get("elapsedTimeMillis", 0) / 1000.0),
-                    peak_memory_bytes=_safe_int(v_stats, "peakTotalMemoryBytes"),
+                    peak_memory_bytes=_safe_int(v_stats, "peakTotalMemoryBytes", "peakMemoryBytes"),
+                    spill_bytes=_safe_int(v_stats, "spilledBytes"),
+                    cpu_time_millis=_safe_int(v_stats, "cpuTimeMillis"),
                     result_hash=v_hash,
                     row_count=len(v_rows),
                 )

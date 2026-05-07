@@ -54,3 +54,6 @@ k8s/spark/build/logs/
 
 # Data files (large)
 datagen/data/thelook_ecommerce.events.csv
+
+
+docs/latex

@@ -78,23 +78,22 @@ def normalize_value(val: object) -> str:
     if val is None:
         return "NULL"
     
-    # Handle NaN / Infinity
+    # Try to parse as float for numeric normalization
     try:
         f_val = float(val)
         if math.isnan(f_val):
             return "NULL"
         if math.isinf(f_val):
             return "INF" if f_val > 0 else "-INF"
+        # Round to 4 decimal places for stable comparison
+        return "{:.4f}".format(round(f_val, 4))
     except (ValueError, TypeError):
         pass
 
     s = str(val).strip()
-    if s.upper() in ("NULL", "NONE", ""):
+    if not s or s.upper() in ("NULL", "NONE"):
         return "NULL"
-    try:
-        return "{:.4f}".format(round(float(s), 4))
-    except (ValueError, TypeError):
-        return s
+    return s
 
 
 def stable_hash(rows: Iterable) -> str:
@@ -102,12 +101,29 @@ def stable_hash(rows: Iterable) -> str:
     Order-independent MD5 of a result set.
     Rows are normalised then *sorted* so that non-deterministic ordering
     in Spark or Trino does not produce false hash mismatches.
+    
+    We attempt a 'smart' sort: numeric values are compared numerically
+    to avoid lexicographical issues (e.g., "9" > "10").
     """
+    def sort_key(row):
+        # Convert each cell to a tuple (is_numeric, numeric_val, string_val)
+        key = []
+        for cell in row:
+            try:
+                f = float(cell)
+                key.append((0, f, ""))
+            except (ValueError, TypeError):
+                key.append((1, 0.0, str(cell)))
+        return key
+
     normalised = [[normalize_value(cell) for cell in row] for row in rows]
     try:
-        normalised.sort()
-    except TypeError:
+        # Try sorting using the smart key
+        normalised.sort(key=sort_key)
+    except Exception:
+        # Fallback to JSON-based sort if schema is inconsistent
         normalised.sort(key=lambda r: json.dumps(r, sort_keys=True))
+        
     payload = json.dumps(normalised, sort_keys=True, ensure_ascii=True)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
