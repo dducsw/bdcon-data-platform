@@ -38,7 +38,7 @@ data:
         # Tránh để 2 executor của cùng 1 job chạy trên cùng node
         # (best-effort, không bắt buộc — xoá nếu cluster ít node)
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
+          preferredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
                   spark-role: executor

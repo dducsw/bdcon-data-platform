@@ -134,11 +134,11 @@ spec:
             - name: SPARK_EXECUTOR_CORES
               value: "2"
             - name: SPARK_EXECUTOR_MEMORY
-              value: "9g"
+              value: "4g"
             - name: SPARK_DRIVER_CORES
               value: "2"
             - name: SPARK_DRIVER_MEMORY
-              value: "7g"
+              value: "4g"
             # Path tới executor pod template bên trong container
             - name: SPARK_EXECUTOR_POD_TEMPLATE
               value: "/opt/spark/conf/executor-pod-template.yaml"
@@ -172,6 +172,7 @@ spec:
               pip install --quiet pyspark==3.5.3 boto3
 
               echo "=== Loading config ==="
+              sed -i 's/\r$//' /tmp/app/benchmark/config/benchmark.env
               set -a
               source /tmp/app/benchmark/config/benchmark.env
               set +a
