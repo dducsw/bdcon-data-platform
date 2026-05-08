@@ -14,12 +14,14 @@ server:
   log:
     trino:
       level: INFO
-  etcFiles:
+
+kafka:
+  tableDescriptions:
     click_events.json: |
       {
         "tableName": "click_events",
         "schemaName": "default",
-        "topicName": "click_events",
+        "topicName": "click-events",
         "message": {
           "dataFormat": "json",
           "fields": [
@@ -204,9 +206,10 @@ additionalCatalogs:
     s3.region=us-east-1
   kafka: |
     connector.name=kafka
-    kafka.nodes=data-platform-kafka-bootstrap:9092
-    kafka.table-description-dir=/etc/trino
+    kafka.nodes=data-platform-kafka-kafka-bootstrap:9092
+    kafka.table-description-dir=/etc/trino/schemas
     kafka.hide-internal-columns=false
+    kafka.table-names=default.click_events
   postgres_source: |
     connector.name=postgresql
     connection-url=jdbc:postgresql://postgres-source:5432/thelook_db
