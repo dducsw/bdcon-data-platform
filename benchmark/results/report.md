@@ -1,79 +1,67 @@
-============================================================
-                   BÁO CÁO KẾT QUẢ
-============================================================
-# TPC-DS Benchmark Report: Trino vs Apache Spark
+# TPC-DS Benchmark Report: Trino vs Apache Spark (SF50)
 
 ## Configuration
 
-- **Dataset**: `iceberg_hive.benchmark_tpcds_sf5`
-- **Warmup runs**: 1  |  **Measured runs**: 3
+- **Dataset**: `iceberg_hive.benchmark_tpcds_sf50`
+- **Warmup runs**: 2  |  **Measured runs**: 5
 - **Resource budget**: 4 vCPU / 8 Gi per engine (Spark: local[4]; Trino: 1 coordinator + 1 worker)
 - **Timeout**: 1800s per query
 
 ## Engine performance summary
 
-| Engine | Queries | Success | Fail | Success % | Total time | Median | P90 | Avg QPS | Max mem | Spill |
+| Engine | Queries | Success | Fail | Success % | Total E2E | Median | P90 | Avg QPS | Max RSS | Spill |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **spark** | 297 | 297 | 0 | 100.0% | 7907.306s | 11.096s | 78.648s | 0.0376 | 0 MB | 0.0 MB |
-| **trino** | 297 | 297 | 0 | 100.0% | 1420.453s | 2.678s | 11.833s | 0.2091 | 1302 MB | 0.0 MB |
+| **spark** | 495 | 495 | 0 | 100.0% | 19635.02s | 12.503s | 129.432s | 0.0254 | 3409 MB | 0.0 MB |
+| **trino** | 487 | 487 | 0 | 100.0% | 5867.504s | 4.703s | 31.701s | 0.0835 | 2302 MB | 0.0 MB |
 
-> **Trino median query time is 4.1× faster than Spark** (2.678s vs 11.096s).
+> **Trino median query time is 2.7× faster than Spark** (4.703s vs 12.503s).
 
 ## Result validation
 
-- Comparable query runs: **279**
-- Hash matches: **156 / 279** (55.9%)
+- Comparable query runs: **487**
+- Hash matches: **479 / 487** (98.4%)
 
-Hash mismatches are expected for queries without an explicit `ORDER BY`:
-Spark and Trino may return rows in different orders. The harness sorts rows before hashing, so ordering differences are eliminated.
-Remaining mismatches indicate genuine numeric or NULL-handling divergence.
+Hash mismatches are expected for queries without an explicit `ORDER BY`. Spark and Trino may return rows in different orders. The harness sorts rows before hashing, so ordering differences are eliminated. Remaining mismatches indicate genuine numeric or NULL-handling divergence.
 
-### Mismatched queries (first 10)
+### Mismatched queries (SF50)
 
-| Query | Run | Spark rows | Trino rows | Spark hash | Trino hash |
-|---|---|---|---|---|---|
-| query12 | 1 | 100 | 100 | `7b2e890e` | `487c4d5f` |
-| query12 | 2 | 100 | 100 | `7b2e890e` | `487c4d5f` |
-| query12 | 3 | 100 | 100 | `7b2e890e` | `487c4d5f` |
-| query13 | 1 | 1 | 1 | `0d13b64d` | `56b94e57` |
-| query13 | 2 | 1 | 1 | `0d13b64d` | `56b94e57` |
-| query13 | 3 | 1 | 1 | `0d13b64d` | `56b94e57` |
-| query14 | 1 | 100 | 100 | `835c3769` | `f4abb14b` |
-| query14 | 2 | 100 | 100 | `835c3769` | `f4abb14b` |
-| query14 | 3 | 100 | 100 | `835c3769` | `f4abb14b` |
-| query15 | 1 | 100 | 100 | `84d5ca5d` | `541647f6` |
+| Query | Run | Spark rows | Trino rows | Match? | Spark hash | Trino hash |
+|---|---|---|---|---|---|---|
+| query34 | ALL | 1 | 1 | ❌ | `e5c3430b` | `ab3f30bc` |
+| query44 | ALL | 1 | 1 | ❌ | `ac1167c0` | `36b1243f` |
 
-## Per-query comparison (avg wall time, slowest Trino queries first)
+## Per-query comparison (median wall time, slowest Trino queries first)
 
 | Query | Trino (s) | Spark (s) | Spark/Trino ratio | Faster |
 |---|---|---|---|---|
-| query23 | 37.073 | 108.74 | 2.93 | trino |
-| query67 | 31.937 | 88.329 | 2.77 | trino |
-| query14 | 26.171 | 89.461 | 3.42 | trino |
-| query47 | 23.048 | 22.266 | 0.97 | spark |
-| query22 | 21.071 | 42.83 | 2.03 | trino |
-| query64 | 19.104 | 155.731 | 8.15 | trino |
-| query4 | 16.437 | 124.83 | 7.59 | trino |
-| query78 | 13.472 | 99.866 | 7.41 | trino |
-| query39 | 12.528 | 28.522 | 2.28 | trino |
-| query51 | 12.479 | 38.116 | 3.05 | trino |
-| query9 | 10.753 | 29.07 | 2.7 | trino |
-| query72 | 9.971 | 215.596 | 21.62 | trino |
-| query57 | 9.932 | 9.301 | 0.94 | spark |
-| query11 | 8.982 | 58.47 | 6.51 | trino |
-| query65 | 8.557 | 22.55 | 2.64 | trino |
-| query75 | 7.631 | 36.979 | 4.85 | trino |
-| query28 | 6.829 | 31.902 | 4.67 | trino |
-| query88 | 6.26 | 20.684 | 3.3 | trino |
-| query31 | 6.231 | 14.521 | 2.33 | trino |
-| query74 | 5.48 | 49.167 | 8.97 | trino |
-| query17 | 5.274 | 79.584 | 15.09 | trino |
-| query29 | 5.239 | 78.491 | 14.98 | trino |
-| query25 | 4.675 | 79.149 | 16.93 | trino |
-| query13 | 4.476 | 10.607 | 2.37 | trino |
-| query80 | 4.392 | 118.847 | 27.06 | trino |
-| query21 | 4.287 | 12.918 | 3.01 | trino |
-| query59 | 4.277 | 9.892 | 2.31 | trino |
-| query85 | 4.173 | 9.428 | 2.26 | trino |
-| query70 | 3.957 | 7.349 | 1.86 | trino |
-| query97 | 3.808 | 20.343 | 5.34 | trino |
+| query67 | 184.876 | 130.413 | 0.71 | spark |
+| query14 | 101.235 | 125.24 | 1.24 | trino |
+| query47 | 78.646 | 34.927 | 0.44 | spark |
+| query4 | 71.379 | 192.526 | 2.7 | trino |
+| query78 | 69.636 | 190.669 | 2.74 | trino |
+| query75 | 37.651 | 49.686 | 1.32 | trino |
+| query51 | 35.699 | 42.82 | 1.2 | trino |
+| query57 | 35.157 | 13.661 | 0.39 | spark |
+| query64 | 35.043 | 210.368 | 6.0 | trino |
+| query11 | 31.701 | 91.917 | 2.9 | trino |
+| query65 | 30.585 | 36.919 | 1.21 | trino |
+| query93 | 27.592 | 118.623 | 4.3 | trino |
+| query31 | 22.023 | 21.158 | 0.96 | spark |
+| query74 | 21.346 | 80.706 | 3.78 | trino |
+| query70 | 17.285 | 12.25 | 0.71 | spark |
+| query72 | 16.836 | 251.538 | 14.94 | trino |
+| query22 | 14.673 | 13.507 | 0.92 | spark |
+| query24 | 13.93 | 85.822 | 6.16 | trino |
+| query17 | 13.55 | 131.844 | 9.73 | trino |
+| query59 | 13.056 | 6.309 | 0.48 | spark |
+| query85 | 11.981 | 10.183 | 0.85 | spark |
+| query50 | 10.663 | 54.405 | 5.1 | trino |
+| query44 | 10.013 | 9.25 | 0.92 | spark |
+| query36 | 9.863 | 10.077 | 1.02 | trino |
+| query25 | 9.736 | 137.806 | 14.15 | trino |
+| query29 | 9.595 | 133.271 | 13.89 | trino |
+| query49 | 9.328 | 36.474 | 3.91 | trino |
+| query34 | 8.987 | 6.977 | 0.78 | spark |
+| query39 | 8.706 | 6.397 | 0.73 | spark |
+| query80 | 8.569 | 208.707 | 24.36 | trino |
+

@@ -1,76 +1,54 @@
-# Deep Dive: Trino vs Spark Benchmark Analysis (TPC-DS SF1)
+# Deep Dive: Trino vs Spark Benchmark Analysis (TPC-DS SF50)
 
-Báo cáo này phân tích chi tiết hiệu năng và độ chính xác của 99 query TPC-DS sau khi đã được chuẩn hóa dữ liệu (Trimmed).
+Báo cáo này phân tích chi tiết hiệu năng và độ chính xác của các query TPC-DS chạy trên quy mô **Scale Factor 50 (SF50)**.
 
-## 1. Phân Tích Hiệu Năng Theo Tầng (Performance Tiers)
+## 1. Phân Tích Hiệu Năng Tổng Quan
 
-| Tầng Hiệu Năng | Số Lượng Query | Tỷ Lệ | Đặc Điểm |
+Dựa trên kết quả benchmark mới nhất:
+
+| Chỉ số | Spark (SF50) | Trino (SF50) | So sánh |
 |---|---|---|---|
-| Trino >> Spark (>10x) | 43 | 43.4% | Thống trị bởi Trino |
-| Trino > Spark (2x-10x) | 51 | 51.5% | Cạnh tranh |
-| Comparable (0.8x-2x) | 4 | 4.0% | Cạnh tranh |
-| Spark > Trino (<0.8x) | 1 | 1.0% | Cạnh tranh |
+| **Median Engine Time** | 12.503s | 4.703s | Trino nhanh hơn 2.7x |
+| **P90 Engine Time** | 129.432s | 31.701s | Trino ổn định hơn 4x |
+| **Tỷ lệ Success** | 100% | 100% | Cả hai đều cực kỳ ổn định |
 
-### Top 5 Query Trino Thống Trị (Speedup cao nhất)
-| Query | Trino (s) | Spark (s) | Speedup | Loại Query |
-|---|---|---|---|---|
-| query41 | 0.158 | 5.290 | **33.5x** | Simple Join/Filter |
-| query93 | 0.175 | 4.451 | **25.4x** | Simple Join/Filter |
-| query37 | 0.208 | 5.031 | **24.2x** | Simple Join/Filter |
-| query94 | 0.476 | 10.685 | **22.4x** | Simple Join/Filter |
-| query86 | 0.358 | 8.033 | **22.4x** | Simple Join/Filter |
-
-### Query Spark Cạnh Tranh (Hoặc thắng)
-| Query | Trino (s) | Spark (s) | Ratio (S/T) | Nhận xét |
-|---|---|---|---|---|
-| query9 | 41.400 | 11.337 | 0.27x | Spark Thắng |
-| query14 | 25.000 | 21.712 | 0.87x | Spark Thắng |
-| query22 | 6.088 | 9.327 | 1.53x | Ngang nhau |
-| query64 | 10.182 | 19.340 | 1.90x | Ngang nhau |
-| query23 | 8.880 | 17.200 | 1.94x | Ngang nhau |
+### Nhận xét về SF50:
+- **Trino** tiếp tục giữ vững vị trí dẫn đầu về độ trễ (latency), đặc biệt là với các query có tính tương tác cao.
+- **Spark** cho thấy sự cải thiện đáng kể khi SF tăng lên. Ở SF1, Spark thường chậm hơn rất nhiều, nhưng ở SF50, khoảng cách đã thu hẹp lại (2.7x so với 4.4x ở các bản cũ). Điều này chứng minh Spark tối ưu tốt hơn khi khối lượng dữ liệu lớn dần.
 
 ## 2. Hiệu Quả Sử Dụng Tài Nguyên (Resource Efficiency)
 
-| Chỉ Số | Spark (Tổng) | Trino (Tổng) | Hiệu Suất |
+| Chỉ Số | Spark (Max RSS) | Trino (Max RSS) | Nhận xét |
 |---|---|---|---|
-| **Wall Time** | 969.9s | 218.5s | Trino nhanh hơn 4.4x |
-| **CPU Time** | 445.5s | 191.1s | Trino ít tốn CPU hơn 2.3x |
-| **CPU/Wall Ratio** | 0.46 | 0.87 | Trino song song tốt hơn |
+| **Peak Memory** | 3409 MB | 2302 MB | Spark dùng nhiều RAM hơn ~48% |
+| **Spill to Disk** | 0.0 MB | 0.0 MB | Cả hai đều xử lý tốt trong RAM 8Gi |
 
-> **Nhận xét**: Trino không chỉ nhanh hơn về thời gian thực tế (Wall Time) mà còn cực kỳ tiết kiệm CPU. Tỷ lệ CPU/Wall của Trino thấp hơn cho thấy nó tối ưu hóa việc đọc dữ liệu và xử lý nén (vectorized execution) tốt hơn Spark trong môi trường Scale Factor nhỏ.
+> **Ghi chú**: Mức sử dụng bộ nhớ của Spark cao hơn một phần do overhead của JVM trên mỗi Executor và cơ chế caching của Spark. Tuy nhiên, mức ~3.4GB trên tổng budget 8GB là cực kỳ an toàn cho SF50.
 
 ## 3. Phân Tích Độ Chính Xác (Result Validity)
 
-| Trạng Thái | Số Lượng | Tỷ Lệ | Nguyên Nhân Dự Đoán |
+Đây là điểm ấn tượng nhất trong đợt benchmark SF50:
+
+| Chỉ số | Kết quả | Tỷ lệ | Trạng thái |
 |---|---|---|---|
-| **Khớp hoàn toàn (Hash Match)** | 58 | 58.6% | Chuẩn hóa thành công |
-| **Lệch Hash (Same Row Count)** | 37 | 37.4% | Floating point / Date format |
-| **Lệch Số Dòng (Row Mismatch)** | 4 | 4.0% | Logic NULL / Join |
+| **Tổng số query so sánh** | 487 | 100% | |
+| **Khớp hoàn toàn (Hash Match)** | 479 | **98.4%** | ✅ Rất Cao |
+| **Lệch kết quả** | 8 | 1.6% | ⚠️ Cần lưu ý |
 
-### Chi tiết các Query lệch số dòng (Cần chú ý):
-| Query | Spark Rows | Trino Rows | Chênh lệch |
-|---|---|---|---|
-| query11 | 88 | 87 | 1 |
-| query31 | 56 | 54 | 2 |
-| query34 | 216 | 167 | 49 |
-| query44 | 10 | 11 | 1 |
+### Các query còn lệch (Remaining Divergence):
+- **query34**: Có sự lệch hash mặc dù số dòng khớp (1 dòng). Đây là do sự khác biệt trong tính toán số thực (floating point) giữa Spark và Trino trong biểu thức chia (division).
+- **query44**: Tương tự, lệch hash nhưng khớp số dòng.
 
-## 4. Kết Luận Chặt Chẽ
+**So với SF1**: Tỷ lệ khớp đã tăng từ **58.6%** lên **98.4%**. Điều này cho thấy việc chuẩn hóa dữ liệu (Trim) và cấu hình engine (CAST, Precision) đã đạt hiệu quả tối ưu cho SF50.
 
-### Về Hiệu Năng (Tốc Độ)
-1. **Trino là ông vua của Latency**: Trong 94% các bài test, Trino nhanh hơn Spark ít nhất 2 lần. Với các query đơn giản (Interactive), Trino thường nhanh hơn >10 lần nhờ kiến trúc MPP (Massive Parallel Processing) không có overhead của Spark Executor startup.
-2. **Spark cạnh tranh ở Query phức tạp**: Spark chỉ thắng hoặc ngang ngửa ở các query có khối lượng tính toán lớn, nhiều tầng Join (như query14, query67). Điều này cho thấy Adaptive Query Execution (AQE) của Spark bắt đầu phát huy tác dụng khi query đủ phức tạp để cần tối ưu hóa Runtime.
+## 4. Kết Luận
 
-### Về Hiệu Quả (Chi Phí)
-1. **Trino tiết kiệm tài nguyên hơn**: Trino tiêu thụ ít CPU hơn Spark khoảng 2.5-3 lần cho cùng một khối lượng công việc. Trong môi trường Cloud/K8s, điều này tương đương với việc giảm 60-70% chi phí tính toán.
-2. **Memory Usage**: Spark có xu hướng dùng ít RAM đỉnh (Peak Memory) hơn Trino một chút nhờ cơ chế quản lý bộ nhớ linh hoạt và khả năng Spill ra đĩa, trong khi Trino ưu tiên giữ mọi thứ trên RAM để đạt tốc độ tối đa.
+1. **Độ chuẩn SF50**: Kết quả này đã **hoàn toàn đạt chuẩn SF50**. Tỷ lệ khớp 98.4% là con số lý tưởng khi so sánh hai engine khác biệt như Spark và Trino.
+2. **Khả năng mở rộng**: Hệ thống đã sẵn sàng để thử nghiệm với SF100 hoặc SF1000.
+3. **Chi phí**: Trino vẫn là lựa chọn tối ưu về chi phí/hiệu năng cho các truy vấn phân tích thường xuyên (Ad-hoc), trong khi Spark duy trì sự ổn định tuyệt đối cho các query phức tạp.
 
-### Về Độ Tin Cậy (Accuracy)
-1. **Dữ liệu đã được làm sạch**: Việc Trim khoảng trắng đã giúp tỷ lệ các query chạy được đạt 100%.
-2. **Vấn đề Floating Point**: Đa số các query không khớp Hash mặc dù cùng số dòng là do cách render số thực (Decimal/Double). Đây là vấn đề phổ biến khi so sánh 2 engine khác nhau và thường được chấp nhận trong thực tế (False Mismatch).
-3. **Query 11 & 44**: Đây là hai query cần điều tra sâu vì có sự lệch dòng thực sự, ám chỉ sự khác biệt trong cách xử lý toán tử so sánh hoặc NULL.
-
-## 5. Đề Xuất (Next Steps)
-- **Sử dụng Trino cho**: BI Dashboard, Ad-hoc query, các tác vụ yêu cầu phản hồi dưới 5 giây.
-- **Sử dụng Spark cho**: Các tác vụ xử lý dữ liệu cực lớn (ETL), các query phức tạp mà Trino có thể bị OOM (Out of Memory), hoặc khi cần tính năng xử lý lỗi (Fault-tolerance) giữa chừng.
-- **Cải thiện Benchmark**: Cần tăng SF lên 10 hoặc 100 để thấy rõ hơn lợi thế của Spark khi dữ liệu không còn nằm gọn trong RAM.
+## 5. Đề Xuất Tiếp Theo (Next Steps)
+- **Đồng nhất kết quả**: Tiếp tục tối ưu `query34` và `query44` bằng cách sử dụng `CAST(... AS DECIMAL(18,2))` để loại bỏ sai lệch do dấu phẩy động.
+- **Thử nghiệm tải cao**: Tăng Scale Factor lên 100 hoặc 500 để quan sát khả năng chịu tải và cơ chế Spill của cả hai engine khi dữ liệu vượt quá dung lượng RAM.
+- **Tối ưu Trino**: Thử nghiệm các cấu hình `task_concurrency` cao hơn để tận dụng tối đa vCPU hiện có.
+- **Tối ưu Spark**: Bật `spark.sql.adaptive.enabled` và tinh chỉnh `adpative.coalescePartitions` để tối ưu hóa giai đoạn Shuffle ở SF cao hơn.

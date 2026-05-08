@@ -30,7 +30,7 @@ Before running benchmarks, you must materialize the TPC-DS source data into Iceb
    ```bash
    python scripts/prepare_tpcds_data.py
    ```
-   *This script performs: Schema creation, data materialization (SF10), string trimming, and `ANALYZE TABLE` for statistics.*
+   *This script performs: Schema creation, data materialization (SF50), string trimming, and `ANALYZE TABLE` for statistics.*
 
 ---
 
@@ -169,3 +169,6 @@ This will produce a summary of execution times, memory usage, and CPU metrics fo
 2. **Node Pools**: Use dedicated Node Pools for benchmark engines to ensure predictable CPU performance.
 3. **Warmup Runs**: Always set `WARMUP_RUNS=1` to ensure JIT and filesystem caches are primed.
 4. **Statistics**: Always run `ANALYZE TABLE` before benchmarking after any data change.
+
+
+kubectl cp data-platform/trino-benchmark-runner-m2k5x:/benchmark/results/raw/trino_results.jsonl benchmark/results/raw/trino_results1.jsonl

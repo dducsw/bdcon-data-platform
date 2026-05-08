@@ -228,3 +228,44 @@ def write_csv(path: Path, rows: List[dict], fieldnames: List[str]) -> None:
         writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def load_results_df() -> "pd.DataFrame":
+    """
+    Utility for notebooks: loads both engines' raw results into a single pandas DataFrame.
+    Globs for *_results.jsonl files in the raw directory.
+    """
+    import pandas as pd
+    env = load_env()
+    results_dir_val = env.get("RESULTS_DIR", "benchmark/results")
+    results_root = ROOT / results_dir_val
+    raw_dir = results_root / "raw"
+    
+    print(f"DEBUG: Searching for results in: {raw_dir.resolve()}")
+    
+    records = []
+    if raw_dir.exists():
+        files = list(raw_dir.glob("*_results*.jsonl"))
+        print(f"DEBUG: Found {len(files)} files: {[f.name for f in files]}")
+        for path in files:
+            # Try to infer engine from filename if not in record
+            engine_hint = "spark" if "spark" in path.name.lower() else "trino" if "trino" in path.name.lower() else "unknown"
+            file_records = load_jsonl(path)
+            for r in file_records:
+                if "engine" not in r:
+                    r["engine"] = engine_hint
+            records.extend(file_records)
+    
+    df = pd.DataFrame(records)
+    if not df.empty:
+        # Ensure numeric types
+        for col in ["wall_time_seconds", "engine_internal_time", "peak_memory_bytes", "throughput_qps"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # Canonical latency: use internal time if available, else wall time
+        df["latency_s"] = df.apply(
+            lambda r: r["engine_internal_time"] if r.get("engine_internal_time", 0) > 0 else r.get("wall_time_seconds", 0),
+            axis=1
+        )
+    return df

@@ -288,6 +288,9 @@ def main() -> None:
     for f in sorted(reports_dir.iterdir()):
         print(f"  {f.name}  ({f.stat().st_size:,} bytes)")
 
+    print(f"\nVisualization notebook created at: {raw_dir}/benchmark.ipynb")
+    print("Open it in Jupyter or VS Code to see paper-quality charts.")
+
 
 if __name__ == "__main__":
     main()

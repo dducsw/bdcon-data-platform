@@ -253,6 +253,7 @@ def main() -> None:
         if not output_file.exists():
             output_file.write_text("", encoding="utf-8")
 
+
     # Verify worker count
     try:
         # Use system.runtime.nodes as /v1/node may return 404 in some Trino versions/configs
@@ -285,9 +286,18 @@ def main() -> None:
             if env.get("VALIDATE_FIRST", "false").lower() == "true" and env.get("WRAP_COUNT", "false").lower() == "true":
                 print(f"  [Phase 1] Validating {query_name} (full query)...")
                 v_start = time.perf_counter()
+                
+                # Start RSS sampler for Trino workers
+                ns = env.get("K8S_NAMESPACE", "data-platform")
+                selector = "app.kubernetes.io/component=worker"
+                v_sampler = K8sClusterMemorySampler(ns, selector)
+                v_sampler.start()
+                
                 v_query_resp = submit_query(sql_full, env, f"val-{query_name}")
                 v_rows, v_stats, v_qid = poll_until_done(v_query_resp, timeout_s)
                 v_wall = time.perf_counter() - v_start
+                v_rss_peak = v_sampler.stop()
+                
                 v_hash = stable_hash(v_rows) if v_rows else ""
                 
                 v_record = make_record(
@@ -299,7 +309,7 @@ def main() -> None:
                     status="success" if v_rows else "failed",
                     wall_time_seconds=v_wall,
                     engine_internal_time=(v_stats.get("elapsedTimeMillis", 0) / 1000.0),
-                    peak_memory_bytes=_safe_int(v_stats, "peakTotalMemoryBytes", "peakMemoryBytes"),
+                    peak_memory_bytes=max(v_rss_peak, _safe_int(v_stats, "peakTotalMemoryBytes", "peakMemoryBytes")),
                     spill_bytes=_safe_int(v_stats, "spilledBytes"),
                     cpu_time_millis=_safe_int(v_stats, "cpuTimeMillis"),
                     result_hash=v_hash,
