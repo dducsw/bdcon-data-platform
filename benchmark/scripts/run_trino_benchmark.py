@@ -24,10 +24,14 @@ queries accumulate on the Trino cluster and interfere with subsequent runs.
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from kubernetes import client, config
 
 from common import (
     ROOT,
@@ -83,6 +87,72 @@ def _delete(url: str) -> None:
             pass
     except Exception:
         pass   # best-effort cancellation
+
+
+# --- K8s Cluster-wide Memory Sampler ------------------------------------------
+
+class K8sClusterMemorySampler(threading.Thread):
+    """
+    Polls Kubernetes Metrics API to get the instantaneous sum of memory 
+    usage across all pods matching a label selector.
+    """
+    def __init__(self, namespace: str, label_selector: str, interval: float = 1.0):
+        super().__init__()
+        self.namespace = namespace
+        self.label_selector = label_selector
+        self.interval = interval
+        self.stop_event = threading.Event()
+        self.peak_memory_bytes = 0
+        
+        try:
+            config.load_incluster_config()
+        except:
+            try:
+                config.load_kube_config()
+            except:
+                self.api = None
+                return
+        self.api = client.CustomObjectsApi()
+
+    def _parse_mem(self, mem_str: str) -> int:
+        if not mem_str: return 0
+        if mem_str.endswith("Ki"): return int(mem_str[:-2]) * 1024
+        if mem_str.endswith("Mi"): return int(mem_str[:-2]) * 1024 * 1024
+        if mem_str.endswith("Gi"): return int(mem_str[:-2]) * 1024 * 1024 * 1024
+        try:
+            return int(mem_str.rstrip("nukmGTP")) 
+        except:
+            return 0
+
+    def run(self):
+        if not self.api: return
+        while not self.stop_event.is_set():
+            try:
+                res = self.api.list_namespaced_custom_object(
+                    group="metrics.k8s.io",
+                    version="v1beta1",
+                    namespace=self.namespace,
+                    plural="pods",
+                    label_selector=self.label_selector
+                )
+                
+                current_total = 0
+                for item in res.get("items", []):
+                    for container in item.get("containers", []):
+                        usage = container.get("usage", {}).get("memory", "0")
+                        current_total += self._parse_mem(usage)
+                
+                if current_total > self.peak_memory_bytes:
+                    self.peak_memory_bytes = current_total
+            except:
+                pass
+            time.sleep(self.interval)
+
+    def stop(self) -> int:
+        self.stop_event.set()
+        if self.is_alive():
+            self.join(timeout=2.0)
+        return self.peak_memory_bytes
 
 
 # ─── Query submission & polling ───────────────────────────────────────────────
@@ -238,7 +308,7 @@ def main() -> None:
                 append_jsonl(output_file, v_record)
                 print(f"    Validation: hash={v_hash[:8]}, rows={len(v_rows)}")
 
-            # Phase 2: Measured Runs
+                # Phase 2: Measured Runs
             sql_perf = sql_full
             if env.get("WRAP_COUNT", "false").lower() == "true":
                 sql_perf = f"SELECT COUNT(*) FROM (\n{sql_full}\n)"
@@ -248,6 +318,12 @@ def main() -> None:
                 run_number = 0 if is_warmup else run_index - warmups
                 run_label = f"warmup-{run_index}" if is_warmup else f"run-{run_number}"
                 source = f"tpcds-benchmark-{query_name}-{run_label}"
+
+                # Start RSS sampler for Trino workers
+                ns = env.get("K8S_NAMESPACE", "data-platform")
+                selector = "app.kubernetes.io/component=worker"
+                sampler = K8sClusterMemorySampler(ns, selector)
+                sampler.start()
 
                 client_start = time.perf_counter()
                 status = "success"
@@ -264,11 +340,16 @@ def main() -> None:
                     error_message = str(exc)[:2000]
 
                 client_wall = time.perf_counter() - client_start
+                peak_rss_bytes = sampler.stop()
 
                 # Canonical wall_time is client-side perf_counter (E2E).
                 # Store server-side reported time in engine_internal_time for debugging.
                 server_ms = stats.get("elapsedTimeMillis")
                 server_wall = (server_ms / 1000.0) if server_ms is not None else 0.0
+
+                # Priority: Sampler RSS > peakTotalMemoryBytes > peakMemoryBytes
+                reported_peak = _safe_int(stats, "peakTotalMemoryBytes", "peakMemoryBytes")
+                final_peak = max(peak_rss_bytes, reported_peak)
 
                 record = make_record(
                     engine="trino",
@@ -279,7 +360,7 @@ def main() -> None:
                     status=status,
                     wall_time_seconds=client_wall,
                     engine_internal_time=server_wall,
-                    peak_memory_bytes=_safe_int(stats, "peakTotalMemoryBytes", "peakMemoryBytes"),
+                    peak_memory_bytes=final_peak,
                     spill_bytes=_safe_int(stats, "spilledBytes"),
                     cpu_time_millis=_safe_int(stats, "cpuTimeMillis"),
                     result_hash=stable_hash(rows) if rows else "",

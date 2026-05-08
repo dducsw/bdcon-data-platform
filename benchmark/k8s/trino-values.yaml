@@ -170,8 +170,8 @@ service:
   port: 8080
 
 additionalConfigProperties:
-  - "query.max-memory-per-node=4GB"
-  - "query.max-memory=12GB"
+  - "query.max-memory-per-node=7GB"
+  - "query.max-memory=14GB"
   - "memory.heap-headroom-per-node=1GB"
   - "query.max-history=100"
   - "spill-enabled=true"

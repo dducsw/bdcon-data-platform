@@ -22,7 +22,7 @@ FROM   (SELECT ss_ticket_number,
                AND household_demographics.hd_vehicle_count > 0 
                AND ( CASE 
                        WHEN household_demographics.hd_vehicle_count > 0 THEN 
-                       household_demographics.hd_dep_count / 
+                       1.0 * household_demographics.hd_dep_count / 
                        household_demographics.hd_vehicle_count 
                        ELSE NULL 
                      END ) > 1.2 

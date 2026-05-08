@@ -6,8 +6,8 @@
 #     cluster via REST and records server-reported stats (elapsedTimeMillis,
 #     peakMemoryBytes, cpuTimeMillis) from the final payload.
 #   - Trino cluster resource budget = coordinator + workers should total
-#     4 vCPU + 8 Gi to match the Spark pod.
-#     Example: 1 coordinator (1 vCPU / 2 Gi) + 1 worker (3 vCPU / 6 Gi).
+#     ~6 vCPU + ~26 Gi to match the Spark cluster.
+#     Current: 1 coordinator (2 vCPU / 6 Gi) + 2 workers (2 vCPU / 10 Gi each).
 #     This is configured in the Trino Helm values — see trino-values.yaml.
 #   - The runner pod itself is deliberately tiny (0.25 vCPU / 256 Mi); it
 #     spends 99% of its time waiting for HTTP responses.
@@ -108,7 +108,7 @@ spec:
               done
 
               echo "=== CODE ĐÃ SẴN SÀNG ==="
-              pip install --quiet requests
+              pip install --quiet requests kubernetes
 
               echo "=== Loading config ==="
               sed -i 's/\r$//' /tmp/app/benchmark/config/benchmark.env

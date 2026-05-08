@@ -20,8 +20,7 @@ FROM   (SELECT ss_ticket_number,
                       OR household_demographics.hd_buy_potential = '0-500' ) 
                AND household_demographics.hd_vehicle_count > 0 
                AND CASE 
-                     WHEN household_demographics.hd_vehicle_count > 0 THEN 
-                     household_demographics.hd_dep_count / 
+                     WHEN household_demographics.hd_vehicle_count > 0 THEN 1.0 * household_demographics.hd_dep_count / 
                      household_demographics.hd_vehicle_count 
                      ELSE NULL 
                    END > 1 

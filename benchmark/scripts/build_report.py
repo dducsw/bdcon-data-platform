@@ -30,9 +30,9 @@ def build_summary(records: list[dict]) -> list[dict]:
         successes = [r for r in rows if r["status"] == "success"]
         failures  = [r for r in rows if r["status"] != "success"]
 
-        times = [r["wall_time_seconds"] for r in successes]
+        times = [r["engine_internal_time"] if r["engine_internal_time"] > 0 else r["wall_time_seconds"] for r in successes]
         total_time = sum(r["wall_time_seconds"] for r in rows)
-        success_time = sum(r["wall_time_seconds"] for r in successes)
+        success_time = sum(r["engine_internal_time"] if r["engine_internal_time"] > 0 else r["wall_time_seconds"] for r in successes)
         
         # Calculate statistics
         avg_time = statistics.mean(times) if times else 0
@@ -95,7 +95,8 @@ def build_per_query(records: list[dict]) -> list[dict]:
     buckets: dict[tuple, list[float]] = defaultdict(list)
     for r in records:
         if r["run_type"] == "measured" and r["status"] == "success":
-            buckets[(r["query_name"], r["engine"])].append(r["wall_time_seconds"])
+            val = r["engine_internal_time"] if r["engine_internal_time"] > 0 else r["wall_time_seconds"]
+            buckets[(r["query_name"], r["engine"])].append(val)
 
     query_names = sorted({k[0] for k in buckets})
     rows = []
@@ -148,7 +149,7 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
         "",
         "## Engine performance summary",
         "",
-        "| Engine | Queries | Success | Fail | Success % | Total time | Median | P90 | Avg QPS | Max mem | Spill |",
+        "| Engine | Queries | Success | Fail | Success % | Total E2E | Median Engine | P90 Engine | Avg QPS | Max RSS | Spill |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in summary:
@@ -164,7 +165,7 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
             f"| {r['median_wall_time_seconds']}s "
             f"| {r['p90_wall_time_seconds']}s "
             f"| {r['avg_throughput_qps']:.4f} "
-            f"| {max_mem_mb:.0f} MB "
+            f"| {max_mem_mb:.0f} MB (RSS) "
             f"| {spill_mb:.1f} MB |"
         )
 
@@ -175,7 +176,7 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
         speedup = s_row["median_wall_time_seconds"] / t_row["median_wall_time_seconds"]
         lines += [
             "",
-            f"> **Trino median query time is {speedup:.1f}× {'faster' if speedup > 1 else 'slower'} than Spark** "
+            f"> **Trino median engine time is {speedup:.1f}× {'faster' if speedup > 1 else 'slower'} than Spark** "
             f"({t_row['median_wall_time_seconds']}s vs {s_row['median_wall_time_seconds']}s).",
         ]
 
@@ -236,13 +237,10 @@ def build_markdown(env: dict, summary: list[dict], validation: list[dict], per_q
         "",
         "## Methodology & Limitations",
         "",
-        f"- **Compute vs E2E**: Benchmark was run with `WRAP_COUNT={wrap_status}`. ",
-        "  - If `true`, metrics focus on core engine compute/shuffle (standard for comparison).",
-        "  - If `false`, metrics include significant Python/REST serialization overhead.",
-        "- **Memory Measurement**: Metrics represent **Total JVM/System Peak Memory** across the cluster. ",
-        "  - Trino: `peakTotalMemoryBytes` (Cluster-wide).",
-        "  - Spark: Sum of `JVMHeapMemory` peak across all executors + Driver RSS.",
-        "> ⚠️ **Note**: Memory metrics are NOT directly comparable between engines due to different accounting layers. Spark metrics focus on JVM Heap, while Trino includes more system-level buffers.",
+        "- **Compute vs E2E**: Benchmark metrics focus on core engine compute/shuffle (Engine Internal Wall Time). ",
+        "  - E2E Wall Time (including REST/Python overhead) is preserved in raw data for audit.",
+        "- **Memory Measurement**: Metrics represent **Cluster-wide Peak RSS (Physical Memory)**. ",
+        "  - This is measured via Kubernetes Metrics API during query execution to ensure a fair 'App vs App' comparison, including JVM overhead.",
         "- **Caching**: `spark.catalog.clearCache()` was used between queries. ",
         "  - Note: This does NOT clear JVM JIT compilation, filesystem metadata caches, or S3A connection pools. Subsequent queries may still benefit from lower-level warming.",
         "- **Isolation**: Engines were run sequentially with `requests=limits` (Guaranteed QoS) to ensure no resource contention.",
