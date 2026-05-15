@@ -9,9 +9,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.audit import init_audit_table, log_audit
 
 def transform_table(spark: SparkSession, source_table: str, target_table: str) -> None:
-    """Cleans and deduplicates user data for the Silver layer with idempotency."""
+    """Cleans and deduplicates order item data for the Silver layer with idempotency."""
     start_ts = datetime.now()
-    pipeline_name = "Silver-Users"
+    pipeline_name = "Silver-Order-Items"
     
     print(f"Transforming {source_table} to {target_table}...")
     
@@ -22,29 +22,26 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
         spark.sql(f"""
             CREATE TABLE IF NOT EXISTS {target_table} (
                 id BIGINT,
-                first_name STRING,
-                last_name STRING,
-                email STRING,
-                age INT,
-                gender STRING,
-                street_address STRING,
-                postal_code STRING,
-                city STRING,
-                state STRING,
-                country STRING,
-                latitude DOUBLE,
-                longitude DOUBLE,
-                traffic_source STRING,
+                order_id BIGINT,
+                user_id BIGINT,
+                product_id BIGINT,
+                inventory_item_id BIGINT,
+                status STRING,
                 created_at TIMESTAMP,
                 source_updated_at TIMESTAMP,
+                shipped_at TIMESTAMP,
+                delivered_at TIMESTAMP,
+                returned_at TIMESTAMP,
+                sale_price DOUBLE,
                 updated_at TIMESTAMP
             ) USING iceberg
             PARTITIONED BY (days(created_at))
             TBLPROPERTIES (
                 'write.format.default'='parquet',
-                'write.parquet.bloom-filter-enabled.column.email'='true'
+                'write.distribution-mode'='hash'
             )
         """)
+        spark.sql(f"ALTER TABLE {target_table} WRITE ORDERED BY order_id, product_id")
 
         # 2. Read from Bronze
         df_bronze = spark.read.table(source_table)
@@ -54,33 +51,28 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
         df_silver = (
             df_bronze.select(
                 col("id").cast("long"),
-                "first_name",
-                "last_name",
-                "email",
-                col("age").cast("int"),
-                "gender",
-                "street_address",
-                "postal_code",
-                "city",
-                "state",
-                "country",
-                col("latitude").cast("double"),
-                col("longitude").cast("double"),
-                "traffic_source",
+                col("order_id").cast("long"),
+                col("user_id").cast("long"),
+                col("product_id").cast("long"),
+                col("inventory_item_id").cast("long"),
+                "status",
                 col("created_at").cast("timestamp"),
-                col("source_updated_at").cast("timestamp")
+                col("source_updated_at").cast("timestamp"),
+                col("shipped_at").cast("timestamp"),
+                col("delivered_at").cast("timestamp"),
+                col("returned_at").cast("timestamp"),
+                col("sale_price").cast("double")
             )
             .withColumn("updated_at", current_timestamp())
-            .dropDuplicates(["id"])
         )
         target_cnt = df_silver.count()
 
         # 4. Upsert (Merge) into Silver Iceberg
-        df_silver.createOrReplaceTempView("source_users")
+        df_silver.createOrReplaceTempView("source_order_items")
         
         spark.sql(f"""
             MERGE INTO {target_table} t
-            USING source_users s
+            USING source_order_items s
             ON t.id = s.id
             WHEN MATCHED THEN
                 UPDATE SET *
@@ -89,29 +81,23 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
         """)
         
         log_audit(spark, pipeline_name, source_table, target_table, source_cnt, target_cnt, "SUCCESS", start_ts)
-        print(f"Transformation of users completed.")
+        print(f"Transformation of order_items completed.")
 
     except Exception as e:
         log_audit(spark, pipeline_name, source_table, target_table, 0, 0, "FAILED", start_ts, str(e))
         raise e
 
 if __name__ == "__main__":
-    # Sync configurations with pipelines/example/spark_hive_minio_test.py
-    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-    MINIO_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    MINIO_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
-    HIVE_METASTORE_URI = os.getenv("HIVE_METASTORE_URI", "thrift://hive-metastore:9083")
-
     spark = (
         SparkSession.builder
-        .appName("Silver-Transform-Users")
+        .appName("Silver-Transform-Order-Items")
         .getOrCreate()
     )
 
     spark.sparkContext.setLogLevel("ERROR")
 
-    source = "catalog_iceberg.bronze.users"
-    target = "catalog_iceberg.silver.users"
+    source = "catalog_iceberg.bronze.order_items"
+    target = "catalog_iceberg.silver.order_items"
     
     transform_table(spark, source, target)
     

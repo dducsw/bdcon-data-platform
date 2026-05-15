@@ -1,4 +1,6 @@
 import os
+import sys
+import time
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col, current_timestamp
 from pyspark.sql.types import (
@@ -7,10 +9,8 @@ from pyspark.sql.types import (
     StringType,
     IntegerType,
     LongType,
-    TimestampType,
 )
 
-# Define schema directly in the file as requested
 EVENT_SCHEMA = StructType([
     StructField("id", LongType(), False),
     StructField("user_id", LongType(), True),
@@ -27,22 +27,32 @@ EVENT_SCHEMA = StructType([
     StructField("created_at", StringType(), True),
 ])
 
+def log(msg):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}")
+    sys.stdout.flush()
+
 def process_batch(df, batch_id, table_name):
     count = df.count()
     if count > 0:
-        print(f"Processing micro-batch {batch_id}: {count} rows -> {table_name}")
+        log(f"Processing micro-batch {batch_id}: {count} rows -> {table_name}")
+        # Ghi d? li?u v?o bảng Iceberg
         df.writeTo(table_name).append()
     else:
-        print(f"Batch {batch_id} is empty. Skipping.")
+        log(f"Batch {batch_id} is empty. Skipping.")
 
 def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: str) -> None:
-    """Streams data from Kafka topic to an Iceberg table."""
-    kafka_bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
-    checkpoint_location = f"file:///tmp/checkpoints/{table_name.replace('.', '_')}"
+    kafka_bootstrap_servers = os.getenv(
+        "KAFKA_BOOTSTRAP_SERVERS",
+        "data-platform-kafka-kafka-bootstrap:9092",
+    )
+    checkpoint_location = f"s3a://iceberg/checkpoints/{table_name.replace('.', '_')}"
 
-    print(f"Starting streaming ingestion from Kafka topic {topic_name} to {table_name}...")
+    print(f"Streaming from {topic_name} to {table_name}...")
 
-    # 1. Create table with explicit schema and partitioning
+    spark.sql("CREATE DATABASE IF NOT EXISTS catalog_iceberg.bronze")
+
+    # Create table if not exists
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
             id BIGINT,
@@ -64,7 +74,6 @@ def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: st
         PARTITIONED BY (days(timestamp))
     """)
 
-    # 2. Read from Kafka
     df_kafka = (
         spark.readStream
         .format("kafka")
@@ -74,7 +83,6 @@ def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: st
         .load()
     )
 
-    # 3. Parse JSON and add metadata
     df_transformed = (
         df_kafka.select(
             col("key").cast("string"),
@@ -84,7 +92,6 @@ def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: st
         .withColumn("load_at", current_timestamp())
     )
 
-    # 4. Write to Iceberg using foreachBatch for logging
     query = (
         df_transformed.writeStream
         .foreachBatch(lambda df, batch_id: process_batch(df, batch_id, table_name))
@@ -95,24 +102,35 @@ def stream_kafka_to_iceberg(spark: SparkSession, topic_name: str, table_name: st
     )
 
     query.awaitTermination()
-    print(f"Streaming ingestion to {table_name} completed.")
 
 if __name__ == "__main__":
+    # Sync configurations with pipelines/example/spark_hive_minio_test.py
+    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+    MINIO_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+    MINIO_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
+    HIVE_METASTORE_URI = os.getenv("HIVE_METASTORE_URI", "thrift://hive-metastore:9083")
+
     spark = (
         SparkSession.builder
-        .appName("Bronze-Ingest-Events")
-        .config("spark.hadoop.fs.s3a.endpoint", "http://minio:9000")
-        .config("spark.hadoop.fs.s3a.access.key", "minioadmin")
-        .config("spark.hadoop.fs.s3a.secret.key", "minioadmin123")
+        .appName("Bronze-Ingest-Events-Streaming")
+        .config("hive.metastore.uris", HIVE_METASTORE_URI)
+        .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+        .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
+        .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+        .config(
+            "spark.hadoop.fs.s3a.aws.credentials.provider",
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        )
+        .enableHiveSupport()
         .getOrCreate()
     )
 
     spark.sparkContext.setLogLevel("ERROR")
 
-    topic = "click_events"
+    topic = os.getenv("KAFKA_TOPIC", "click-events")
     target_table = "catalog_iceberg.bronze.events"
     
     stream_kafka_to_iceberg(spark, topic, target_table)

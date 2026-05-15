@@ -119,27 +119,9 @@ def aggregate_user_statistics(spark: SparkSession, target_table: str) -> None:
         raise e
 
 if __name__ == "__main__":
-    # Sync configurations with pipelines/example/spark_hive_minio_test.py
-    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
-    MINIO_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    MINIO_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
-    HIVE_METASTORE_URI = os.getenv("HIVE_METASTORE_URI", "thrift://hive-metastore:9083")
-
     spark = (
         SparkSession.builder
         .appName("Gold-Agg-User-Statistics")
-        .config("hive.metastore.uris", HIVE_METASTORE_URI)
-        .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
-        .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
-        .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
-        .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
-        )
-        .enableHiveSupport()
         .getOrCreate()
     )
 

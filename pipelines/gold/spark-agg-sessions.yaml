@@ -1,0 +1,98 @@
+apiVersion: "sparkoperator.k8s.io/v1beta2"
+kind: SparkApplication
+metadata:
+  name: gold-agg-sessions
+  namespace: data-platform
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  image: "apache/spark:3.5.0"
+  mainApplicationFile: "local:///opt/spark/scripts/gold_sessions.py"
+  sparkVersion: "3.5.0"
+  restartPolicy:
+    type: OnFailure
+  hadoopConf:
+    "fs.s3a.endpoint": "http://minio:9000"
+    "fs.s3a.path.style.access": "true"
+    "fs.s3a.connection.ssl.enabled": "false"
+    "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem"
+    "fs.s3a.access.key": "minioadmin"
+    "fs.s3a.secret.key": "minioadmin"
+    "fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+  sparkConf:
+    "spark.sql.warehouse.dir": "s3a://iceberg/lakehouse"
+    "spark.sql.catalogImplementation": "hive"
+    "spark.hadoop.hive.metastore.uris": "thrift://hive-metastore:9083"
+    "spark.driver.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.executor.extraJavaOptions": "-Dlog4j2.logger.NativeCodeLoader.level=ERROR"
+    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+    "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+    "spark.sql.catalog.spark_catalog": "org.apache.iceberg.spark.SparkSessionCatalog"
+    "spark.sql.catalog.spark_catalog.type": "hive"
+    "spark.sql.catalog.catalog_iceberg": "org.apache.iceberg.spark.SparkCatalog"
+    "spark.sql.catalog.catalog_iceberg.type": "hive"
+    "spark.sql.catalog.catalog_iceberg.uri": "thrift://hive-metastore:9083"
+    "spark.sql.catalog.catalog_iceberg.warehouse": "s3a://iceberg/lakehouse"
+    "spark.jars.ivy": "/tmp/.ivy2"
+    "spark.sql.shuffle.partitions": "4"
+    "spark.network.timeout": "300s"
+    "spark.sql.broadcastTimeout": "300"
+  driver:
+    cores: 1
+    coreLimit: "1200m"
+    memory: "4g"
+    serviceAccount: spark-driver
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-driver
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: gold-ingest-scripts
+  executor:
+    cores: 1
+    coreLimit: "1200m"
+    instances: 1
+    memory: "4g"
+    template:
+      spec:
+        containers:
+          - name: spark-kubernetes-executor
+            env:
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_ACCESS_KEY
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: spark-minio-secret
+                    key: MINIO_SECRET_KEY
+              - name: PYTHONUNBUFFERED
+                value: "1"
+            volumeMounts:
+              - name: script-volume
+                mountPath: /opt/spark/scripts
+        volumes:
+          - name: script-volume
+            configMap:
+              name: gold-ingest-scripts
