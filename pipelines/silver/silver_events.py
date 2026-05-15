@@ -99,6 +99,12 @@ def transform_table(spark: SparkSession, source_table: str, target_table: str) -
         raise e
 
 if __name__ == "__main__":
+    # Sync configurations with pipelines/example/spark_hive_minio_test.py
+    MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
+    MINIO_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+    MINIO_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
+    HIVE_METASTORE_URI = os.getenv("HIVE_METASTORE_URI", "thrift://hive-metastore:9083")
+
     spark = (
         SparkSession.builder
         .appName("Silver-Transform-Events")
