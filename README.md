@@ -2,9 +2,9 @@
 
 [![Stack](https://img.shields.io/badge/Stack-Lakehouse-blue.svg)](#-technology-stack)
 [![Cloud](https://img.shields.io/badge/Cloud-GKE-blue.svg)](#-infrastructure--cost-optimization)
-[![Cost](https://img.shields.io/badge/Strategy-100%25_Spot_Instances-green.svg)](#-infrastructure--cost-optimization)
+[![Cost](https://img.shields.io/badge/Strategy-Hybrid_Spot_/_On--Demand-green.svg)](#-infrastructure--cost-optimization)
 
-A comprehensive, cost-optimized Modern Data Platform built on **Google Kubernetes Engine (GKE)**. This project implements a full-stack, open-source data infrastructure managed via **Terraform**, optimized for high-scale processing using a **100% Spot Instances** strategy and **GKE Autoscaler** to reduce infrastructure costs by **70%**.
+A comprehensive, cost-optimized Modern Data Platform built on **Google Kubernetes Engine (GKE)**. This project implements a full-stack, open-source data infrastructure managed via **Terraform**, optimized for high-scale processing using a **Hybrid Spot/On-Demand** strategy and **GKE Autoscaler** to reduce infrastructure costs significantly.
 
 ---
 
@@ -14,7 +14,7 @@ The platform leverages a **Lakehouse architecture**, combining the cost-efficien
 
 ### 🚀 Key Achievements:
 - **Infrastructure as Code (IaC)**: Fully automated deployment using **Terraform**, managing a cluster of 3 VMs with specialized node pools (Compute for Spark, Query for Trino).
-- **Extreme Cost Optimization**: Achieved a **70% cost reduction** compared to standard instances through aggressive Spot Instance utilization and horizontal pod autoscaling.
+- **Extreme Cost Optimization**: Achieved a **65-70% cost reduction** compared to standard instances through balanced Spot/On-Demand utilization and horizontal pod autoscaling.
 - **Advanced ETL Pipelines**: Implemented a complete **Medallion Architecture** (Bronze, Silver, Gold) supporting E-commerce analytics, product performance, and real-time clickstream behavior.
 - **Rigorous Benchmarking**: Executed **TPC-DS (Scale Factor 50, 50GB)** benchmarks to evaluate Trino and Apache Spark on query latency and resource utilization.
 
@@ -116,7 +116,8 @@ Use the provided setup script to deploy all components:
 ## 💰 Infrastructure & Cost Optimization
 
 This platform is engineered for **minimal cloud bill**:
-- **Spot Instances**: Using Preemptible VMs for all workloads.
+- **Spot Instances**: Using Preemptible VMs for compute and query workloads to save costs.
+- **On-Demand Nodes**: Keeping critical infrastructure (MinIO, Postgres, Kafka controllers) stable on on-demand nodes.
 - **Auto-Scaling**: GKE Cluster Autoscaler automatically resizes based on demand.
 - **Storage Tiering**: Efficient data lifecycle management in MinIO.
 

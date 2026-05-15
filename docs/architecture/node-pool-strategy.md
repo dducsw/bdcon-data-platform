@@ -6,7 +6,7 @@ This document reflects the node-pool strategy that is actually running in the de
 
 | Pool | Machine type | Label | Spot | Intended workloads |
 | --- | --- | --- | --- | --- |
-| `infra-pool` | `n2-standard-8` | `role=infra` | yes | PostgreSQL, MinIO, Gravitino, Hive Metastore |
+| `infra-pool` | `n2-standard-8` | `role=infra` | no | PostgreSQL, MinIO, Gravitino, Hive Metastore |
 | `compute-pool` | `e2-highmem-4` | `role=compute` | yes | Spark, Redis, exporters, batch workloads |
 | `query-pool` | `e2-highmem-4` | `role=query` | yes | Trino, Superset, query-facing workloads |
 
@@ -31,7 +31,7 @@ Not guaranteed:
 
 - workloads are placed primarily with `nodeSelector.role`
 - Spot-backed workloads tolerate `cloud.google.com/gke-spot=true:NoSchedule`
-- controllers and stateful services are still grouped logically by pool even though the cluster is all-Spot
+- controllers and stateful services are still grouped logically by pool even though the cluster is partially Spot-backed.
 
 ## Current Verification
 

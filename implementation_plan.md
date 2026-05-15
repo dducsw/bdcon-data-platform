@@ -21,7 +21,7 @@ Platform được xây dựng theo mô hình **Data Lakehouse** trên Google Kub
 │  ┌──────────────────────┬───────────────────┬─────────────────────┐ │
 │  │   infra-pool         │   compute-pool    │   query-pool        │ │
 │  │   On-demand          │   Spot            │   Spot              │ │
-│  │   e2-highmem-4       │   e2-highmem-4    │   e2-highmem-4      │ │
+│  │   n2-standard-8      │   e2-highmem-4    │   e2-highmem-4      │ │
 │  │   role=infra         │   role=compute    │   role=query        │ │
 │  ├──────────────────────┼───────────────────┼─────────────────────┤ │
 │  │ PostgreSQL           │ Spark Application │ Spark Application   │ │
@@ -90,10 +90,10 @@ Platform được xây dựng theo mô hình **Data Lakehouse** trên Google Kub
 
 | Machine | Loại | Đơn giá/h | Giờ/ngày | Chi phí/tháng |
 |---------|------|-----------|----------|---------------|
-| `e2-highmem-4` x1 | On-demand (infra) | ~$0.17/h | 8h | ~$41 |
+| `n2-standard-8` x1 | On-demand (infra) | ~$0.38/h | 8h | ~$91 |
 | `e2-highmem-4` x2 | Spot (compute+query) | ~$0.04/h | 8h | ~$20 |
 | **Persistent Disk** (150Gi total) | pd-balanced | — | — | ~$7 |
-| **Total** | | | | **~$68/tháng** |
+| **Total** | | | | **~$118/tháng** |
 
 > Tính với 8 giờ/ngày (14:00–22:00), 30 ngày/tháng. Nếu để 24/7, chi phí x3 (~$370/tháng).
 

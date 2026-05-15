@@ -13,9 +13,9 @@ This runbook documents the current dev/lab bootstrap flow that matches the live 
 
 ## Cluster Model
 
-The dev cluster is intentionally cost-optimized and Spot-backed across all three pools:
+The dev cluster is intentionally cost-optimized using a mix of On-Demand and Spot pools:
 
-- `infra-pool`: `n2-standard-8`, `role=infra`, `spot=true`
+- `infra-pool`: `n2-standard-8`, `role=infra`, `spot=false` (On-Demand for stability)
 - `compute-pool`: `e2-highmem-4`, `role=compute`, `spot=true`
 - `query-pool`: `e2-highmem-4`, `role=query`, `spot=true`
 

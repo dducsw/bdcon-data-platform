@@ -45,11 +45,11 @@ The platform is managed using a hybrid approach:
 ---
 ## Node Pool Configuration (Logical Segregation)
 
-| Pool Name | Machine Type | Role / Workload |
-| :--- | :--- | :--- |
-| **infra-pool** | n2-standard-8 | Postgres, MinIO, Redis (Stateful/Heavy) |
-| **compute-pool** | e2-highmem-4 | Airflow, Spark Drivers/Executors |
-| **query-pool** | e2-highmem-4 | Trino Workers, Superset, Grafana |
+| Pool Name | Machine Type | Type | Role / Workload |
+| :--- | :--- | :--- | :--- |
+| **infra-pool** | n2-standard-8 | On-Demand | Postgres, MinIO, Redis (Stateful/Heavy) |
+| **compute-pool** | e2-highmem-4 | Spot | Airflow, Spark Drivers/Executors |
+| **query-pool** | e2-highmem-4 | Spot | Trino Workers, Superset, Grafana |
 
 > [!NOTE]
 > Currently, for cost optimization, the pools are configured with **autoscaling (min 0)** to allow complete hibernation when not in use.

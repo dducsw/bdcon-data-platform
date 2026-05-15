@@ -78,7 +78,7 @@ resource "google_container_node_pool" "infra_pool" {
     disk_size_gb = 50
     disk_type    = "pd-balanced"
 
-    spot = true
+    spot = false
 
 
     # Node labels (for nodeSelector in pods)
