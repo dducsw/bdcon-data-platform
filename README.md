@@ -4,21 +4,24 @@
 [![Cloud](https://img.shields.io/badge/Cloud-GKE-blue.svg)](#-infrastructure--cost-optimization)
 [![Cost](https://img.shields.io/badge/Strategy-100%25_Spot_Instances-green.svg)](#-infrastructure--cost-optimization)
 
-A professional-grade, cost-optimized Modern Data Platform built on **Google Kubernetes Engine (GKE)**. This project implements a full-stack, open-source data infrastructure optimized for high-scale processing and experimentation using a **100% Spot Instances** strategy to minimize cloud expenditure.
+A comprehensive, cost-optimized Modern Data Platform built on **Google Kubernetes Engine (GKE)**. This project implements a full-stack, open-source data infrastructure managed via **Terraform**, optimized for high-scale processing using a **100% Spot Instances** strategy and **GKE Autoscaler** to reduce infrastructure costs by **70%**.
 
 ---
 
-## 🏛️ Architecture Overview
+## 🏛️ Architecture & Key Highlights
 
 The platform leverages a **Lakehouse architecture**, combining the cost-efficiency and flexibility of a Data Lake with the performance and ACID guarantees of a Data Warehouse.
 
-![Architecture Diagram](assets/k8s_architecture.png)
+### 🚀 Key Achievements:
+- **Infrastructure as Code (IaC)**: Fully automated deployment using **Terraform**, managing a cluster of 3 VMs with specialized node pools (Compute for Spark, Query for Trino).
+- **Extreme Cost Optimization**: Achieved a **70% cost reduction** compared to standard instances through aggressive Spot Instance utilization and horizontal pod autoscaling.
+- **Advanced ETL Pipelines**: Implemented a complete **Medallion Architecture** (Bronze, Silver, Gold) supporting E-commerce analytics, product performance, and real-time clickstream behavior.
+- **Rigorous Benchmarking**: Executed **TPC-DS (Scale Factor 50, 50GB)** benchmarks to evaluate Trino and Apache Spark on query latency and resource utilization.
 
 ### Core Design Principles:
 - **Decoupled Compute & Storage**: Independent scaling of processing power (Spark/Trino) and data storage (MinIO/S3).
 - **Open Standards**: Built entirely on open-source technologies (Iceberg, Spark, Trino, Kafka).
-- **Unified Catalog**: Centralized metadata management via Gravitino and Hive Metastore.
-- **Cost Efficiency**: Automated node pool management utilizing GKE Spot Instances.
+- **Reliability & Idempotency**: Advanced data pipelines featuring **Audit Layer**, **Watermark logic**, and **Iceberg MERGE INTO** for zero data loss and guaranteed idempotency.
 
 ---
 
@@ -66,6 +69,9 @@ k8s-data-platform/
 
 For detailed guides, please refer to the following documentation sub-folders:
 
+### 📚 [Project Report](BigData_Assignment_Report.pdf)
+- **Technical Report**: Comprehensive documentation of the platform's design, implementation, and benchmarking results.
+
 ### 📐 [Architecture Docs](docs/architecture/)
 - [Deployment Model](docs/architecture/deployment-model.md): Physical and logical component layout.
 - [Node Pool Strategy](docs/architecture/node-pool-strategy.md): Detailed explanation of Spot Instance utilization.
@@ -73,6 +79,11 @@ For detailed guides, please refer to the following documentation sub-folders:
 
 ### 📜 [Decision Records (ADRs)](docs/decisions/)
 - Understand why specific technologies and patterns were chosen.
+
+### 🚀 [Data Pipelines](pipelines/)
+- [Medallion Architecture](pipelines/README.md): Bronze, Silver, and Gold layer implementation.
+- [Advanced Features](pipelines/README.md#3-các-tính-năng-nâng-cao-advanced-features): Idempotency, Audit Layer, and Watermark logic.
+- [Iceberg Maintenance](pipelines/maintenance/README.md): Guide for compaction and snapshot expiration.
 
 ### 🛠️ [Operational Runbooks](docs/runbooks/)
 - [Setup Guide](SETUP.md): Initial deployment instructions.
@@ -110,6 +121,21 @@ This platform is engineered for **minimal cloud bill**:
 - **Storage Tiering**: Efficient data lifecycle management in MinIO.
 
 For a detailed breakdown of the cost strategy, see [Node Pool Strategy](docs/architecture/node-pool-strategy.md).
+
+---
+
+---
+
+## 👥 Team & Acknowledgments
+
+This project was developed by a team of students from **Ho Chi Minh City University of Technology (HCMUT - Bach Khoa)**, and members of the **BigData Club, HCMUT**.
+
+| Name | Student ID (MSSV) | Class |
+| :--- | :--- | :--- |
+| **Lê Đình Đức** | 2310774 | L01 |
+| **Ngô Ngọc Tuấn Anh** | 2210078 | L01 |
+| **Nguyễn Văn Công Thành** | 2313133 | L01 |
+| **Nguyễn Phúc Nhân** | 2312438 | L01 |
 
 ---
 
