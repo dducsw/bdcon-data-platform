@@ -57,3 +57,5 @@ datagen/data/thelook_ecommerce.events.csv
 
 
 docs/latex
+docker-dev/airflow/logs
+docker-dev/spark/logs

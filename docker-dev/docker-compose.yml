@@ -294,6 +294,7 @@ services:
       "
       export PGPASSWORD=postgres;
       psql -h postgres -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'thelook_ecommerce'\" | grep -q 1 || psql -h postgres -U postgres -c \"CREATE DATABASE thelook_ecommerce\";
+      psql -h postgres -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'airflow'\" | grep -q 1 || psql -h postgres -U postgres -c \"CREATE DATABASE airflow\";
       echo 'Database setup completed.'
       "
     networks:
@@ -376,6 +377,97 @@ services:
     restart: "no"
     networks:
       - docker-dev-platform
+
+  # Orchestration: Apache Airflow 3.1
+  airflow-common: &airflow-common
+    image: apache/airflow:${AIRFLOW_IMAGE_TAG}
+    environment:
+      &airflow-common-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@postgres:5432/airflow
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution
+      AIRFLOW__CORE__FERNET_KEY: 'qS9rspFM2pFAC0OOttT_H7QQcGOf9kUz36UFOdHsqvI='
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'qS9rspFM2pFAC0OOttT_H7QQcGOf9kUz36UFOdHsqvI='
+      AIRFLOW__API_AUTH__JWT_SECRET: 'qS9rspFM2pFAC0OOttT_H7QQcGOf9kUz36UFOdHsqvI='
+      _PIP_ADDITIONAL_DEPENDENCIES: "apache-airflow-providers-fab apache-airflow-providers-apache-spark docker"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./pipelines:/opt/airflow/pipelines
+      - /var/run/docker.sock:/var/run/docker.sock
+    user: "50000:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-setup:
+        condition: service_completed_successfully
+    networks:
+      - docker-dev-platform
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: api-server
+    container_name: airflow-webserver
+    ports:
+      - "8085:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    container_name: airflow-scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    container_name: airflow-dag-processor
+    restart: always
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    container_name: airflow-triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --firstname admin \
+          --lastname admin \
+          --role Admin \
+          --email admin@example.com \
+          --password admin
 
   #   doris-fe:
   #   image: apache/doris:fe-3.1.3
