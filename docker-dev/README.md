@@ -121,9 +121,23 @@ SELECT id, source_updated_at, load_at FROM catalog_iceberg.bronze.users LIMIT 10
 SELECT id, source_updated_at, updated_at FROM catalog_iceberg.silver.users LIMIT 10;
 ```
 
+### 🕸️ Apache Airflow Orchestration
+
+![Airflow DAGs](../assets/dag0.png)
+
+The project leverages **Apache Airflow 3.1** to orchestrate the PySpark Medallion pipelines. To achieve maximum efficiency and prevent cluster resource contention, we implemented a **Hybrid Pipeline Architecture** (Lambda/Kappa approach):
+
+- ⚡ **Near Real-Time (NRT) Pipeline** (`lakehouse_nrt_events_pipeline`): Runs every **5 minutes**. Focuses strictly on high-velocity streaming data (`events`), moving it from Bronze (Kafka Streaming Batch) -> Silver -> Gold (User Sessions & Engagement).
+- 🕒 **Batch Transactional Pipeline** (`lakehouse_batch_transactional_pipeline`): Runs every **30 minutes**. Focuses on core transactional data ingested from PostgreSQL (`users`, `orders`, `products`, etc.).
+
+**Key Highlights:**
+1. **Parallel Execution**: Tables are processed in parallel (e.g., `bronze_users >> silver_users`, `bronze_orders >> silver_orders`), ensuring fast throughput without waiting for unrelated tables.
+2. **Precise Dependencies**: The Gold layer tasks only wait for the *specific* Silver tables they need (e.g., `gold_sessions` only waits for `silver_events`), drastically reducing end-to-end latency.
+3. **Resource Management**: Spark jobs are assigned to a dedicated Airflow Pool (`spark_pool=3`) to prevent cluster memory exhaustion (OOM) by capping parallel Spark-Submits.
+
 ## Benchmarking Spark vs Trino
 
-The repository includes a starter benchmark harness under [benchmark/](D:/Projects/k8s-data-platform/docker-dev/benchmark/README.md) to compare Spark and Trino on the same `TPC-DS SF5` dataset and collect:
+The repository includes a starter benchmark harness under [benchmark/](benchmark/README.md) to compare Spark and Trino on the same `TPC-DS SF5` dataset and collect:
 
 - `query_time`
 - `throughput`
@@ -162,6 +176,9 @@ Project
 ├── 📄 README.md                       # Project documentation
 ├── 📄 .gitignore                      # Git ignore patterns
 │
+├── 📁 airflow/                        # Apache Airflow Orchestration
+│   └── 📁 dags/                       # Airflow DAG definitions (NRT, Batch, Maintenance)
+│
 ├── 📁 assets/                         # Documentation assets
 │
 ├── 📁 infrastructure/                 # Service-specific configurations
@@ -188,7 +205,11 @@ Project
 │   └── (Your interactive PySpark notebooks)
 │
 ├── 📁 pipelines/                      # Data Processing Pipelines
-│   └── create_example_table.py        # Sample Iceberg table creation
+│   ├── 📁 bronze/                     # Raw Data Ingestion (JDBC, Kafka)
+│   ├── 📁 silver/                     # Data Cleaning & Deduplication
+│   ├── 📁 gold/                       # Aggregations & Business Logic
+│   ├── 📁 maintenance/                # Iceberg Snapshot & Optimization
+│   └── 📁 utils/                      # Shared logic (Audit, Watermarks)
 │
 ├── 📁 scripts/                        # Utility Scripts
 │

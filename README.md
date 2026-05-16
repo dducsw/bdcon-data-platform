@@ -53,6 +53,7 @@ k8s-data-platform/
 │   ├── architecture/        
 │   ├── decisions/           
 │   └── runbooks/            
+├── docker-dev/              # 🐳 Standalone Docker Compose environment for local testing
 ├── helm-values/             # Standardized Helm chart configurations
 ├── k8s/                     # Kubernetes manifests (Kustomize based)
 │   ├── base/                
@@ -92,7 +93,22 @@ For detailed guides, please refer to the following documentation sub-folders:
 
 ---
 
-## ⚡ Quick Start
+## 🐳 Local Development Environment (docker-dev)
+
+For rapid local development, prototyping, and pipeline testing without deploying to Kubernetes, we provide a fully containerized standalone environment using **Docker Compose**.
+
+Located in the [`docker-dev/`](docker-dev/) directory, this environment perfectly mirrors the production stack (Spark, Iceberg, Trino, Airflow, Kafka, MinIO). It allows you to run, orchestrate, and debug the **Medallion Pipelines)** locally.
+
+**Quick Start for Local Dev:**
+```bash
+cd docker-dev
+docker compose up -d --build
+```
+> 👉 **See the [docker-dev README](docker-dev/README.md)** for detailed instructions, Airflow DAG architectures, and local Trino benchmarking guides.
+
+---
+
+## ⚡ Quick Start (Kubernetes)
 
 ### 1. Prerequisites
 - Google Cloud Account (GCP)
