@@ -36,7 +36,11 @@ with DAG(
     schedule='*/5 * * * *',
     catchup=False,
     max_active_runs=1,
+<<<<<<< HEAD
     tags=['dev', 'events', 'iceberg'],
+=======
+    tags=['nrt', 'events', 'iceberg'],
+>>>>>>> 9933772 (update .gitignore)
 ) as dag_nrt:
 
     # Bronze: Streaming Batch from Kafka
